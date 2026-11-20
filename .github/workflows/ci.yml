@@ -18,11 +18,10 @@ jobs:
   hub:
     runs-on: macos-latest
     timeout-minutes: 60
-    env:
-      # The tests run with a temp HOME; a uv Python under the real HOME is then not found offline.
-      UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python
     steps:
       - uses: actions/checkout@v4
+      - name: Keep the uv Python outside HOME (the tests run with a temp HOME and look for it offline)
+        run: echo "UV_PYTHON_INSTALL_DIR=$RUNNER_TEMP/uv-python" >> "$GITHUB_ENV"
       - name: Install uv and gitleaks
         run: brew install uv gitleaks
       - name: Git identity for the test repos

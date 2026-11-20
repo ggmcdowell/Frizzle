@@ -39,7 +39,9 @@ class CiTests(unittest.TestCase):
         self.assertEqual(sorted(set(conform.OFFLINE) - {"settings"}), sorted(names))
         self.assertIn("run: .venv/bin/python -B Drawer/settings-sync.py --tracked", text)
         # The tests swap HOME, so the uv Python must live outside it (a clean-HOME run went red without it).
-        self.assertIn("UV_PYTHON_INSTALL_DIR:", text)
+        self.assertIn('echo "UV_PYTHON_INSTALL_DIR=$RUNNER_TEMP/uv-python" >> "$GITHUB_ENV"', text)
+        # GitHub rejects the runner context in a job-level env block: the first public run failed on it.
+        self.assertNotIn("${{ runner.", text)
 
 
 if __name__ == "__main__":
