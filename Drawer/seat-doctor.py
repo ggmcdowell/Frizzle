@@ -136,7 +136,7 @@ def _denylist_item(hub: Path, cfg) -> Item:
     path = harness_config.path(cfg["names"]["denylist"])
 
     def rules(file: Path) -> list[str]:
-        lines = (line.strip() for line in file.read_text(encoding="utf-8").splitlines())
+        lines = (line.strip() for line in file.read_text(encoding="utf-8-sig").splitlines())
         return [line for line in lines if line and not line.startswith("#")]
     try:
         found = rules(path)

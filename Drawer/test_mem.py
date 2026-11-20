@@ -152,6 +152,8 @@ class MemTest(unittest.TestCase):
             with self.subTest(body), self.assertRaises(mem.MemError):
                 self.m.add("fact", body, new=True)
         self.m.add("fact", "The notes live at https://example.test/x and in ~/Hub.", new=True)
+        for body in ("Answer y:/n at the prompt.", "The ratio is w:/o here.", "The tree /a/" + "home/x is fine."):
+            self.m.add("fact", body, new=True)  # a letter, a colon and a slash is no drive path
 
     def test_a_windows_test_run_command_is_recognised(self):
         for command in ('"C:\\hub\\.venv\\Scripts\\python.exe" -B -m pytest -q',

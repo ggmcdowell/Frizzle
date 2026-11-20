@@ -118,7 +118,7 @@ def unscoped_search_reason(command):
     project, roots = _product()
     for shape, path in searches:
         trimmed = _trimmed(path)
-        if trimmed.rsplit("/", 1)[-1] in roots:
+        if os.path.normcase(trimmed.rsplit("/", 1)[-1]) in {os.path.normcase(r) for r in roots}:
             return UNSCOPED_SEARCH_REASON % (shape, clip(path))
         if project and _same(trimmed or "/") == project:
             return UNSCOPED_SEARCH_REASON % (shape, clip(path))

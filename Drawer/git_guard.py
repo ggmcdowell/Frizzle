@@ -128,8 +128,11 @@ WORKTREE_REFUSED = ("a raw git worktree remove skips the owner checks (SAF-5). F
 NEVER_KILL = "a kill by name, file or group reaches other sessions' processes. Fix: kill your own pid, by number."
 COMPUTED_KILL = "its pid is computed in this line. Fix: kill your own process by a literal pid."
 UNPARSED = "the line does not parse and holds a delete or kill word. Fix: close the quotes and retry."
-DELETE_TEXT = re.compile(r"(?i)(?<![\w-])(?:rm|trash|kill|pkill|killall|fuser)(?![\w-])"
+DELETE_TEXT = re.compile(r"(?i)(?<![\w-])(?:rm|trash|kill|pkill|killall|fuser|taskkill|stop-process|remove-item)(?![\w-])"
                          r"|\bgit\b[^;&|\n]*\s(?:clean|worktree|branch)(?![\w-])|\bfind\b[^;&|\n]*\s-delete\b")
+# Windows shells whose inner command the gate cannot place, and the delete and kill words it refuses inside them.
+WINDOWS_SHELLS = ("cmd", "powershell", "pwsh")
+WINDOWS_DELETE = re.compile(r"(?i)(?<![\w-])(?:del|erase|rd|rmdir|remove-item|ri|taskkill|stop-process|kill)(?![\w-])")
 LOOKUP = re.compile(r"(?<![\w-])(?:pgrep|pidof|ps|lsof|fuser|pstree)(?![\w-])")
 SELF_KILL = "a kill of $$ or $PPID stops this shell or its session. Fix: kill a child by literal pid or $!."
 MKTEMP = re.compile(r"(?<![\w$])([A-Za-z_]\w*)=[\"']?\$\(\s*mktemp\b([^)]*)\)")
@@ -1140,6 +1143,12 @@ def kill_reason(head, args, line, fed):
     computed in the line."""
     if head in ("pkill", "killall"):
         return NEVER_KILL
+    if head == "taskkill":  # Windows: only /PID <literal pid>; Git Bash spells a switch //PID
+        flags = [re.sub(r"^//", "/", a).upper() for a in args]
+        if any(f in ("/IM", "/FI") for f in flags):
+            return NEVER_KILL
+        pids = [args[i + 1] for i, f in enumerate(flags[:-1]) if f == "/PID"]
+        return None if pids and not fed and all(re.fullmatch(r"\d+", p) for p in pids) else COMPUTED_KILL
     if head == "fuser":
         kills = any(a == "--kill" or (a[:1] == "-" and a[1:2] != "-" and "k" in a) for a in args)
         return NEVER_KILL if kills else None
@@ -1313,9 +1322,11 @@ def delete_reason(words, cwds, line, fed=False):
             return DELETE_REFUSED + f"{head} takes its targets from a pipe or find; cannot place them." + DELETE_REMEDY
         why = next((w for w in (place_reason(t, cwds, line) for t in targets) if w), None)
         return DELETE_REFUSED + f"{head}: {why}" + DELETE_REMEDY if why else None
-    if head in ("kill", "pkill", "killall", "fuser"):
+    if head in ("kill", "pkill", "killall", "fuser", "taskkill"):
         why = kill_reason(head, args, line, fed)
         return DELETE_REFUSED + why if why else None
+    if head in WINDOWS_SHELLS and WINDOWS_DELETE.search(" ".join(args)):
+        return DELETE_REFUSED + f"a delete or kill inside {head} cannot be placed." + DELETE_REMEDY
     for cwd in cwds or [os.sep]:
         call = git_call([rest[0]] + args, cwd)
         if call is None:
@@ -1894,7 +1905,7 @@ def reason(command, event, raw=None, cwds=None):
                 return body
 
         if run and re.search(r"[*?[]", run[0]) and any(fnmatch.fnmatchcase(v, cmd_name(run[0]))
-                                                       for v in ("rm", "trash", "kill", "pkill", "killall", "fuser", "find", "git")):
+                                                       for v in ("rm", "trash", "kill", "pkill", "killall", "fuser", "taskkill", "find", "git")):
             return DELETE_REFUSED + f"{clip(run[0], 24)} is a pattern that can name a delete or kill; cannot place it." + DELETE_REMEDY
         trap = [w for w in run[1:] if w != "--"]
         if shell == "trap" and trap:  # trap 'rm -rf a' EXIT runs its text

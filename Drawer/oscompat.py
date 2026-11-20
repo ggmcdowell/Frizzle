@@ -22,6 +22,7 @@ Cost: this file. Maintainer: hub (whoever ports a tool to a new platform).
 """
 from __future__ import annotations
 
+import errno
 import os
 from pathlib import Path
 import shutil
@@ -34,6 +35,8 @@ WINDOWS = os.name == "nt"
 VENV_SHIM = ("#!/bin/sh\n"
              "# Windows: uv puts the interpreter in .venv/Scripts. Hub commands name .venv/bin/python (Drawer/oscompat.py).\n"
              'exec "$(dirname "$0")/../Scripts/python.exe" "$@"\n')
+# The errors of a lock another handle holds: flock EWOULDBLOCK, msvcrt EACCES or EDEADLOCK. Any other is a fault.
+BUSY = {errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES, errno.EDEADLK}
 LOCK_OFFSET = 1 << 30  # the byte Windows locks: past any lock file's data
 REPLACE_TRIES = 20
 REPLACE_PAUSE = 0.05
@@ -73,7 +76,8 @@ def _fd(handle) -> int:
 
 def lock(handle, blocking: bool = False, timeout: float | None = None) -> None:
     """Take the exclusive lock on an open file (an object or a descriptor). A busy lock raises OSError
-    (BlockingIOError on POSIX) unless blocking, which waits up to timeout seconds (None: no limit)."""
+    (BlockingIOError on POSIX) unless blocking, which waits up to timeout seconds (None: no limit). Any
+    other lock fault raises at once."""
     fd = _fd(handle)
     deadline = None if timeout is None else time.monotonic() + timeout
     while True:
@@ -90,8 +94,8 @@ def lock(handle, blocking: bool = False, timeout: float | None = None) -> None:
                 import fcntl
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return
-        except OSError:
-            if not blocking or (deadline is not None and time.monotonic() >= deadline):
+        except OSError as exc:
+            if exc.errno not in BUSY or not blocking or (deadline is not None and time.monotonic() >= deadline):
                 raise
             time.sleep(0.05)
 
@@ -207,8 +211,10 @@ def recycle(path) -> None:
     full = os.path.abspath(native_path(os.fspath(path))).replace("/", "\\")
     if not os.path.lexists(full):
         raise FileNotFoundError(full)
-    op = SHFILEOPSTRUCTW(None, 3, full + "\0", None, 0x40 | 0x10 | 0x4 | 0x400, False, None, None)
-    # FO_DELETE; FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI. pFrom ends in two NULs.
+    op = SHFILEOPSTRUCTW(None, 3, full + "\0", None, 0x40 | 0x10 | 0x4 | 0x400 | 0x4000, False, None, None)
+    # FO_DELETE; FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING: an item the
+    # Recycle Bin cannot take (a network drive, an oversize item) asks first, never goes for good unasked.
+    # pFrom ends in two NULs.
     code = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
     if code or op.fAnyOperationsAborted or os.path.lexists(full):
         raise OSError("Recycle Bin refused %s (code %d)" % (full, code))

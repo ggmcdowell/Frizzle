@@ -78,6 +78,9 @@ def default_base():
 def absolute(path, base=None):
     """The absolute path a tool path names from base; None when a variable hides it."""
     path = os.path.expandvars(path)
+    if oscompat.WINDOWS:  # AGENTS.md::$DATA, AGENTS.md:x and "AGENTS.md. " all write AGENTS.md on NTFS
+        head, sep, tail = path.replace("\\", "/").rpartition("/")
+        path = head + sep + tail.split(":", 1)[0].rstrip(". ") if tail[1:2] != ":" else path
     if "$" in path:
         return None  # a variable this hook cannot expand resolves at run time, not inside the hub
     path = os.path.expanduser(oscompat.native_path(path))

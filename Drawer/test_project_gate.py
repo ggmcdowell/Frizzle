@@ -1510,6 +1510,7 @@ class WindowsSearch(unittest.TestCase):
                 with self.subTest(command=command):
                     self.assertIsNotNone(gatelib.unscoped_search_reason(command))
             self.assertIsNone(gatelib.unscoped_search_reason("grep.exe -rn Foo scripts/ui"))
+            self.assertIsNotNone(gatelib.unscoped_search_reason("grep -rn Foo GEN"))  # NTFS ignores case
 
 
 class FailClosed(unittest.TestCase):

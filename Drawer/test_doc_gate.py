@@ -463,6 +463,14 @@ class WindowsPaths(unittest.TestCase):
                     unittest.mock.patch.object(self.gate.os.path, "abspath", lambda p: p):
                 self.assertEqual("C:/work/x", self.gate.absolute("/c/work/x"))
 
+    def test_an_ntfs_stream_or_a_trailing_dot_names_the_law_file_on_windows(self):
+        with unittest.mock.patch.object(self.gate.oscompat, "WINDOWS", True), \
+                unittest.mock.patch.object(self.gate.os.path, "isabs", lambda p: True), \
+                unittest.mock.patch.object(self.gate.os.path, "abspath", lambda p: p):
+            for spelling in ("C:/hub/AGENTS.md::$DATA", "C:/hub/AGENTS.md:x", "C:/hub/AGENTS.md. ", "C:\\hub\\AGENTS.md::$DATA"):
+                with self.subTest(spelling):
+                    self.assertEqual("C:/hub/AGENTS.md", self.gate.absolute(spelling))
+
     def test_a_tests_folder_is_found_in_any_case_on_windows(self):
         with unittest.mock.patch.object(self.gate, "PRODUCT", "/p"), \
                 unittest.mock.patch.object(self.gate, "gate_running", lambda c: True), \

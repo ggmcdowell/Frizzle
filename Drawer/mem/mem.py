@@ -114,7 +114,8 @@ TASK_FORM_RE = re.compile(r"^[^:\n]{1,120}:\s*\S.*?\bWhy:\s*\S.*?\bDone when:\s*
 BODY_CAP = {"task": 1800}
 OTHER_CAP = 600
 LINT = (("an ISO date", re.compile(r"\b\d{4}-\d{2}-\d{2}\b")),
-        ("a user-home or volume path", re.compile(r"(?<![\w~.])/(?:[a-z]/)?(?:Users|home|Volumes)/\w|\b[A-Za-z]:[\\/](?:Users[\\/])?\w")),
+        ("a user-home or volume path", re.compile(r"(?<![\w~.])/(?:Users|home|Volumes)/\w|\b[A-Za-z]:\\(?:Users\\)?\w"
+                                            r"|(?<![\w~.])/[a-z]/Users/\w|\b[A-Za-z]:/Users/\w")),
         ("a File:123 cite", re.compile(r"\b[\w./-]*\w\.[A-Za-z]\w{0,5}:\d+\b")))
 # An incident record whose text or tags name git history or a delete closes only with a lost-work check line.
 LOST_WORK_RISK = re.compile(

@@ -42,7 +42,7 @@ def compile_rule(line):
 def load_rules(path):
     """[(line, regex)], or raise SystemExit(2) when the list is missing, unreadable or empty."""
     try:
-        text = Path(path).expanduser().read_text(encoding="utf-8")
+        text = Path(path).expanduser().read_text(encoding="utf-8-sig")  # Notepad may write a BOM
     except OSError as err:
         raise SystemExit(f"name-check: deny list unreadable: {path}: {err.strerror}") from None
     rules = []

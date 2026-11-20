@@ -25,6 +25,25 @@ policy = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(policy)
 
 
+class GuardWindowsVerbs(unittest.TestCase):
+    def test_taskkill_passes_only_a_literal_pid(self) -> None:
+        ctx = {"cwd": "/work/user"}
+        self.assertIsNone(git_guard.reason("taskkill //PID 4242 //F", ctx))
+        self.assertIsNone(git_guard.reason("taskkill /PID 4242 /T /F", ctx))
+        for line in ("taskkill //IM node.exe //F", "taskkill /FI 'IMAGENAME eq x' /F", "taskkill //F",
+                     "taskkill //PID $(cat pid) //F"):
+            with self.subTest(line):
+                self.assertIn("delete guard refused", git_guard.reason(line, ctx) or "")
+
+    def test_a_delete_inside_cmd_or_powershell_is_refused(self) -> None:
+        ctx = {"cwd": "/work/user"}
+        for line in ('powershell -c "Remove-Item -Recurse -Force C:/work/peer"', "cmd //c rd //s //q C:\\work\\peer",
+                     'pwsh -c "Stop-Process -Name node"', "cmd //c del //s x"):
+            with self.subTest(line):
+                self.assertIn("delete guard refused", git_guard.reason(line, ctx) or "")
+        self.assertIsNone(git_guard.reason('powershell -c "Get-ChildItem"', ctx))
+
+
 class GuardNames(unittest.TestCase):
     def test_a_command_name_loses_its_exe_and_cmd_and_its_folder(self) -> None:
         for word, name in (("git.exe", "git"), ("/mingw64/bin/Git.EXE", "git"), ("rm.exe", "rm"),

@@ -86,6 +86,12 @@ class WindowsSpellings(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("absolute home path", out)
 
+    def test_a_deny_list_saved_with_a_bom_keeps_its_first_rule(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deny = Path(tmp, "deny.txt")
+            deny.write_bytes(b"\xef\xbb\xbfzorblax\n")
+            self.assertEqual("zorblax", name_check.load_rules(deny)[0][0])
+
     def test_a_crlf_line_in_a_staged_diff_loses_its_cr(self):
         with tempfile.TemporaryDirectory() as tmp:
             for args in (["init", "-q"], ["config", "core.autocrlf", "false"]):
