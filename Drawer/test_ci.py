@@ -11,6 +11,14 @@ CI = ROOT / ".github" / "workflows" / "ci.yml"
 
 
 class CiTests(unittest.TestCase):
+    def test_the_workflow_is_valid_yaml_with_one_macos_job(self):
+        # An unquoted ': ' in a step name made GitHub reject the file: the first public run had no job.
+        import yaml
+        doc = yaml.safe_load(CI.read_text(encoding="utf-8"))
+        self.assertEqual(["hub"], list(doc["jobs"]))
+        self.assertEqual("macos-latest", doc["jobs"]["hub"]["runs-on"])
+        self.assertTrue(all(isinstance(step.get("name", ""), str) for step in doc["jobs"]["hub"]["steps"]))
+
     def test_the_workflow_runs_the_smoke_command_of_harness_toml(self):
         text = CI.read_text(encoding="utf-8")
         command = harness_config.load(ROOT)["smoke"]["command"].replace("{python}", ".venv/bin/python -B")

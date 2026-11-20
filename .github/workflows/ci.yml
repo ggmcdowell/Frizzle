@@ -34,5 +34,5 @@ jobs:
         run: .venv/bin/python -B Drawer/smoke.py
       - name: Tracked settings (a runner has no local .mcp.json or settings.local.json)
         run: .venv/bin/python -B Drawer/settings-sync.py --tracked
-      - name: Harness conform (offline checks but settings: a runner has no seat and no claude)
+      - name: Harness conform (offline checks except settings; a runner has no seat and no claude)
         run: .venv/bin/python -B Drawer/harness-conform.py skills hooks pointers agents hiding blobs pins cites config
