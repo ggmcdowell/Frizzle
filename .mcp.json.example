@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mem": {
+      "command": ".venv/bin/python",
+      "args": [
+        "-B",
+        "Drawer/mem/mem.py",
+        "mcp"
+      ]
+    }
+  }
+}

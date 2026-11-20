@@ -1,0 +1,88 @@
+# Names and settings for this hub. Code reads every project name from here.
+# The local (git-ignored) harness.local.toml may override any value (same shape).
+# Paths starting with ~ expand to the home folder.
+
+[project]
+name = "frizzle"                 # slug
+display_name = "Frizzle"
+env_prefix = "FRIZZLE"           # FRIZZLE_HUB
+marker_file = ".frizzle-hub"     # empty file at the hub root
+config_root = "~/.config/frizzle-hub"
+state_root = "~/.local/share/frizzle-hub"
+human = "Human"                  # the only task assignee
+# The craft skills a task loads (.claude/skills/<name>).
+task_skills = ["flight", "harness"]
+
+[mem]
+# The hub memory (Drawer/mem/mem.py): one local SQLite file.
+server_name = "mem"              # the MCP server; tool prefix mcp__mem__
+db = "~/.local/share/frizzle-hub/hub.db"
+env_file = "~/.config/frizzle-hub/mem.env"  # OPENAI_API_KEY
+embed_model = "text-embedding-3-small"
+embed_dim = 1536
+export_dir = "~/.local/share/frizzle-hub/mem-export"  # the nightly export: its own Git repo, never the hub repo
+export_remote = ""               # optional, in the local (git-ignored) harness.local.toml: a bare repo or a path; empty: no push
+keep_snapshots = 14
+
+[smoke]
+command = "{python} Drawer/smoke.py"  # empty: no smoke is set up; {python} is the hub interpreter; run from the hub root
+timeout_seconds = 1800
+blocked_exit = 75                # the command's exit code for "cannot run here now" (BLOCKED, not FAIL)
+max_parallel = 0                   # most hub test files Drawer/smoke.py runs at once; 0: a quarter of the logical cores
+land_command = "{python} Drawer/smoke.py --impact origin/main"  # Drawer/hub-land.py's smoke: only the hub tests the diff reaches; empty: command
+always_run = ["Drawer/test_pid_probe.py", "Drawer/test_harness_conform.py", "Drawer/test_precommit.py", "Drawer/test_new_hub.py"]  # whole-tree checks Drawer/smoke.py --impact runs on every pick
+full_on = ["Drawer/git-hooks/*", "Drawer/product-hooks/*", "Drawer/hooks/*", "Drawer/settings-manifest.json", ".claude/settings.json"]  # more core-file patterns (fnmatch, hub-relative) whose change runs the full smoke under --impact; Drawer/smoke.py CORE holds the base set
+
+[routing]
+# rungs orders the effort levels a task may carry (--effort, Drawer/mem/mem.py); a leg's model and effort live in [routing.legs].
+rungs = ["medium", "high", "xhigh"]
+
+[routing.legs]
+# The one home of each Workflow leg's model and effort (operator ruling: most work runs on haiku and
+# sonnet; opus only for planning and critical reasoning). Each row routes the default of a saved template line tagged
+# route:<role> in .claude/workflows, or the frontmatter of an agent profile under its route: key; a profile row with no
+# model leaves the model to the lead's subagent model (sonnet). Drawer/settings-sync.py fails on a routed line that
+# differs (--apply rewrites it) and on a pick with no route. Haiku only for a read leg that a check follows. Model: a
+# word from [gates] allowed_models; effort: low to max.
+# tier-*: the card-run work and resume legs. The plan leg returns the tier of the task; a missing or unknown tier takes
+# default. tier-design is the only opus build row: architecture or save-format migration design.
+plan = { model = "opus", effort = "high" }
+complete = { model = "haiku", effort = "medium" }  # card-run's complete leg runs one command; card-run parses its COMPLETED receipt
+review = { model = "sonnet", effort = "high" }
+review-other = { model = "opus", effort = "high" }  # risky-review: a review or refute leg when the builder ran on that row's family; also the spec-build attack leg
+refute = { model = "sonnet", effort = "medium" }
+one-leg = { model = "haiku", effort = "high" }  # a check follows a read leg
+fan-out = { model = "haiku", effort = "high" }  # a check follows a read leg
+find-verify-finder = { model = "haiku", effort = "high" }      # read leg; the verifiers check it
+find-verify-verifier = { model = "sonnet", effort = "medium" }
+chain = { model = "sonnet", effort = "medium" }
+rules-trim = { model = "sonnet", effort = "medium" }
+spec-draft = { model = "sonnet", effort = "high" }  # spec-build: drafts or revises the spec; its cold attack leg runs on review-other, so keep the two models apart
+tier-trivial = { model = "haiku", effort = "high" }
+tier-default = { model = "sonnet", effort = "medium" }
+tier-hard = { model = "sonnet", effort = "high" }
+tier-design = { model = "opus", effort = "xhigh" }
+implementer = { effort = "high" }
+reviewer = { effort = "high" }
+workflow-leg = { effort = "medium" }
+
+[product]
+# The product the hub builds. Code reads it through Drawer/harness_config.py product_path and product_cfg.
+path = ""                        # in the local (git-ignored) harness.local.toml: the product's folder in its Git checkout; empty: the hub itself is the product
+gate_command = ""                # the product gate Drawer/smoke.py runs in the product checkout; {python} is the hub interpreter; empty: hub tests only
+broad_roots = []                 # folders under the product an unscoped search must not cover whole (a pack sets its own, e.g. a build cache)
+mcp_server = ""                  # an optional single-driver tool server's name in .mcp.json (PRD-4); empty: no registration
+mcp_url = ""                     # its URL; empty: no registration
+
+[orchestrator]
+# Flight runs at most max_items card-runs at once (Drawer/rows.py start, read by Drawer/runlib.py run_limit).
+max_items = 2                    # card-runs of one Flight that run at once
+
+[gates]
+bind = true                     # true: conform and the branch policy block commits and pushes (false: they report); the secret scan and the name check always block
+allowed_models = ["opus", "sonnet", "haiku"]
+lean_model = "opus"             # the one allowed model a leg may use only on a [routing.legs] row that names it (Drawer/fork-gate.py)
+
+[names]
+# Copy name-denylist.example (hub root) to this path; Drawer/name-check.py refuses an empty list.
+denylist = "~/.config/frizzle-hub/name-denylist.txt"  # per hub, outside git

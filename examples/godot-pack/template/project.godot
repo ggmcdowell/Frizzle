@@ -1,0 +1,6 @@
+; Engine configuration file. Written by Drawer/product-init.py; Godot 4 reads it.
+config_version=5
+
+[application]
+
+config/name="Game"

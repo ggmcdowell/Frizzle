@@ -1,0 +1,16 @@
+# Every text file is LF in the index and on disk on every seat, whatever core.autocrlf says.
+# The lines below name explicit types.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+Drawer/git-hooks/* text eol=lf
+# The Workflow tool refuses a script with CR bytes as control characters.
+.claude/workflows/*.js text eol=lf
+
+# A PDF is bytes: never eol-convert it.
+*.pdf binary

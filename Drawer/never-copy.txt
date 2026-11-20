@@ -1,0 +1,62 @@
+# Paths never copied from the source hub into this hub (R12).
+# Git wildmatch patterns, matched against every source path at the pinned commit. A pattern
+# with no slash matches at any depth; a trailing slash matches a folder and all below it.
+# A "marker:" line names a file that marks a vendored tree: the copy skips the whole folder
+# that holds it (R8).
+# Host folders (the source's local config and state under ~/.config and ~/.local/state)
+# are never copied either; they are outside git, so no pattern is needed.
+
+# Version control and sync metadata.
+.git/
+.stfolder/
+.stversions/
+*.sync-conflict-*
+
+# Secrets and credentials.
+.env
+*.env
+.env.local
+*.token
+*.secret
+*.pem
+*.key
+*.p12
+tokens.yaml
+members.yaml
+onboarding.yaml
+onboarding.secret
+
+# Shared provider keys and runtime gate state.
+Drawer/providers/
+
+# Reports, run evidence and ledgers.
+reports/
+*.jsonl
+*.log
+
+# Graph dumps and runtime state.
+dumps/
+.tmp/
+
+# Caches and dependencies.
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+
+# Per-box and generated files. The retired agent lanes' own folders are cut by the keep list.
+.mcp.json
+skills-lock.json
+.claude/settings.local.json
+.claude/worktrees/
+.agents/
+.DS_Store
+
+# Vendored trees.
+marker:LICENSE
+marker:LICENSE.*
+marker:LICENCE
+marker:NOTICE
+marker:COPYING
+marker:SOURCE.json

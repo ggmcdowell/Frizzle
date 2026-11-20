@@ -1,0 +1,11 @@
+# Name deny list for Drawer/name-check.py (the pre-commit hook runs it).
+# Copy this file to the [names] denylist path in harness.toml and put your own
+# private names in the copy.
+# The copy stays outside git. An empty list fails: keep at least one rule.
+#
+# One rule per line; a line that starts with # is a comment. Matching ignores case.
+#   word          a whole word; a space, - , _ or . inside matches any run of those
+#   sub:text      a substring, even inside a longer identifier
+#   re:pattern    a raw regex
+# The rule below is a placeholder. Its [e] keeps it from matching this line.
+re:example-private-nam[e]

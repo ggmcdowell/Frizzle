@@ -1,0 +1,4 @@
+#!/bin/sh
+# Git runs this instead of pre-commit when a merge writes a commit, so the merged tree
+# takes the same gates as a plain commit.
+exec "$(git rev-parse --show-toplevel)/Drawer/git-hooks/pre-commit"

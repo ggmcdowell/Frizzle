@@ -1,0 +1,9 @@
+# Godot pack: the [product] lines that Drawer/product-init.py --pack godot writes into the hub's harness.local.toml (git-ignored).
+# The core never reads this file. path is the folder you pass as --path; init fills it in.
+
+[product]
+path = "~/Projects/MyGame"                 # the game's Git checkout; project.godot sits in it
+gate_command = "sh tools/gate.sh ."        # gate.sh in the game repo; its argument is the project folder, from the checkout root
+broad_roots = [".godot", ".import"]        # the import caches: an unscoped search must not cover them
+mcp_server = "godot-editor"                # the editor MCP server's name in .mcp.json (PRD-4); the pack ships no server
+# mcp_url = "http://127.0.0.1:<port>/mcp"  # the URL of an editor MCP server you run; init --mcp-url writes it. No URL: nothing is registered

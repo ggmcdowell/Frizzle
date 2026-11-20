@@ -1,0 +1,38 @@
+#!/bin/sh
+# Tracked hook, reached through core.hooksPath (git config core.hooksPath Drawer/git-hooks).
+# 1. gitleaks: no secret in the staged changes (rules: .gitleaks.toml).
+# 2. Drawer/name-check.py: no denied name or absolute home path in what the commit adds.
+#    Drawer/rules_check.py --index: no CLAUDE.md or CLAUDE.local.md, which would turn AGENTS.md off,
+#    and no root AGENTS.md over RULES_CEILING lines; over the 40-line cap (rules_audit.CAPS) up to the ceiling commits with a TRIM DUE note.
+#    and each changed AGENTS.md or SKILL.md has a rules audit pass for its staged text and no root
+#    rule-ID fault: an unnamed line, a duplicate or a reused retired ID (Drawer/rules_audit.py, OPR-10).
+# 3. Drawer/harness-conform.py --commit: a settings drift is rendered from the commit's tree and
+#    staged; a form finding (pointers, skills, agents, blobs, pins) warns; a critical fault holds.
+# 4. Drawer/git-branch-policy.py check-commit: main or a task branch in a linked worktree.
+# 1 and 2 always block. 3 and 4 block only when harness.toml sets [gates] bind = true;
+# until then they report (no gate binds until the base proof passes).
+repo=$(git rev-parse --show-toplevel) || exit 1
+python=""
+for candidate in "$repo/.venv/bin/python" "$(command -v python3 2>/dev/null)"; do
+  [ -n "$candidate" ] || continue
+  # Python 3.12 or newer only: an older python3 cannot import tomllib (pyproject requires-python).
+  if "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1; then python=$candidate; break; fi
+done
+if test -z "$python"; then
+  echo "pre-commit: no working Python; run uv sync at the hub root." >&2
+  exit 1
+fi
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed (brew install gitleaks)." >&2
+  exit 1
+fi
+gitleaks git --staged --no-banner --redact -l warn -c "$repo/.gitleaks.toml" "$repo" || {
+  echo "pre-commit: gitleaks found a secret in the staged changes." >&2
+  exit 1
+}
+"$python" -B "$repo/Drawer/name-check.py" || exit 1
+"$python" -B "$repo/Drawer/rules_check.py" --index "$repo" || exit 1
+. "$repo/Drawer/git-hooks/bound-gate.sh"
+bound_gate pre-commit "$repo/Drawer/harness-conform.py" --commit || exit 1
+bound_gate pre-commit "$repo/Drawer/git-branch-policy.py" check-commit --repo "$repo" || exit 1
+exit 0

@@ -1,0 +1,53 @@
+#!/bin/sh
+# Godot pack hook. Copy it into the product repo as .githooks/pre-commit: the hub's Drawer/product-hooks/pre-commit, which
+# the product clone's core.hooksPath reaches, runs it. gdformat comes from PATH: the hub product hook puts the hub .venv/bin (uv.lock pins gdtoolkit) first.
+# It fixes GDScript style in place of a refusal: gdformat on each staged .gd file, then it stages the fix.
+# It never refuses a commit and always exits 0: a missing gdformat or a fault prints a warning and passes.
+# - A staged .gd file with unstaged changes is not fixed: staging it would pull its unstaged hunks in.
+# - A merge, rebase, cherry-pick or revert in progress is skipped.
+# - git commit -- <paths> commits a temporary index (next-index-*.lock); the fix is also staged in the real
+#   index lock beside it, or the real index would keep the unfixed text after the commit.
+NL='
+'
+warn() { echo "pre-commit: $*" >&2; }
+g() { git -c core.quotepath=off "$@"; }
+inlist() { case "$NL$2$NL" in *"$NL$1$NL"*) return 0 ;; esac; return 1; }
+
+top=$(git rev-parse --show-toplevel) || exit 0
+gitdir=$(git rev-parse --absolute-git-dir) || exit 0
+for f in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply sequencer; do
+  test -e "$gitdir/$f" && exit 0
+done
+cd "$top" || exit 0
+staged=$(g diff --cached --name-only --diff-filter=ACMR -- '*.gd') || exit 0
+test -n "$staged" || exit 0
+tool=$(command -v gdformat 2>/dev/null)
+if test -z "$tool"; then
+  warn "WARNING: gdformat is not installed, so the staged .gd files are NOT formatted. Install it: run uv sync in the hub (uv.lock pins gdtoolkit)"
+  exit 0
+fi
+dirty=$(g diff --name-only -- '*.gd') || exit 0
+set -f
+IFS=$NL
+fix=
+skipped=
+for f in $staged; do
+  if inlist "$f" "$dirty"; then skipped="$skipped $f"; else fix="$fix$f$NL"; fi
+done
+test -z "$skipped" || warn "not fixed, staged with unstaged changes too:$skipped"
+test -n "$fix" || exit 0
+set --
+for f in $fix; do set -- "$@" "./$f"; done
+"$tool" "$@" </dev/null >/dev/null 2>&1 || warn "gdformat failed; the files it could format are staged."
+g add -- "$@" || warn "cannot stage the formatted files."
+case ${GIT_INDEX_FILE##*/} in
+  next-index-*)
+    real=${GIT_INDEX_FILE%/*}/index.lock
+    if test -f "$real"; then
+      GIT_INDEX_FILE=$real git -c core.quotepath=off add -- "$@" || warn "cannot stage the formatted files in the real index."
+    else
+      warn "no real index lock beside $GIT_INDEX_FILE; the real index keeps the unformatted text."
+    fi
+    ;;
+esac
+exit 0

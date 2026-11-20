@@ -1,0 +1,22 @@
+[project]
+name = "frizzle-hub"
+version = "0.1.0"
+description = "Hub runtime: memory, hooks and gates."
+requires-python = ">=3.12"
+dependencies = [
+  # Stay on the 1.x line: mcp 2.0 moved mcp.server.fastmcp.
+  "mcp>=1.27,<2",
+  "anyio",
+  "sqlite-vec==0.1.9",
+  "openai>=3.29.0",
+]
+
+[dependency-groups]
+# uv sync installs the dev group by default; card Proofs run .venv/bin/python -m pytest.
+# gdtoolkit: gdformat for the Godot pack pre-commit hook, pinned here so every seat gets this version.
+dev = ["pytest", "gdtoolkit==4.5.0"]
+
+[tool.uv]
+package = false
+# The floor sits at or below the uv that wrote uv.lock; an older uv misreads the lock.
+required-version = ">=0.12"

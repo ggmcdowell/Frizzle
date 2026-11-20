@@ -1,0 +1,17 @@
+# Secret scan config: the gitleaks defaults plus key forms they miss.
+# The pre-commit hook and every history scan in this repo read this file.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "openai-scoped-key"
+description = "OpenAI project, service-account or admin key"
+regex = '''\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}'''
+keywords = ["sk-proj-", "sk-svcacct-", "sk-admin-"]
+
+[[rules]]
+id = "anthropic-key-any"
+description = "Anthropic key of any kind"
+regex = '''\bsk-ant-[a-z]{2,8}\d{2}-[A-Za-z0-9_-]{20,}'''
+keywords = ["sk-ant-"]

@@ -1,0 +1,17 @@
+#!/bin/sh
+# Tracked hook. Drawer/git-branch-policy.py check-push: branch, remote and landing policy.
+# It blocks only when harness.toml sets [gates] bind = true; until then it reports.
+repo=$(git rev-parse --show-toplevel) || exit 1
+python=""
+for candidate in "$repo/.venv/bin/python" "$(command -v python3 2>/dev/null)"; do
+  [ -n "$candidate" ] || continue
+  # Python 3.12 or newer only: an older python3 cannot import tomllib (pyproject requires-python).
+  if "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1; then python=$candidate; break; fi
+done
+if test -z "$python"; then
+  echo "pre-push: no working Python; run uv sync at the hub root." >&2
+  exit 1
+fi
+. "$repo/Drawer/git-hooks/bound-gate.sh"
+bound_gate pre-push "$repo/Drawer/git-branch-policy.py" check-push --repo "$repo" --remote "$1" --url "$2" || exit 1
+exit 0

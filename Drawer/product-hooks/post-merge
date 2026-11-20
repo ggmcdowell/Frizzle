@@ -1,0 +1,9 @@
+#!/bin/sh
+# Tracked product-repo hook, reached through the clone's core.hooksPath (PRODUCT-CONVENTIONS.md PRD-2).
+# Git runs hooks only from that path, so this chains to the repo's tracked .githooks/post-merge, when it has one.
+repo=$(git rev-parse --show-toplevel) || exit 0
+hook="$repo/.githooks/post-merge"
+if test -x "$hook"; then
+  exec "$hook" "$@"
+fi
+exit 0

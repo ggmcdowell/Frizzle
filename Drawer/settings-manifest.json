@@ -1,0 +1,227 @@
+{
+  "_": [
+    "Canonical source for the hub root .claude/settings.json.",
+    "Hand-edit THIS file only, then run:  <python> Drawer/settings-sync.py --apply",
+    "Git carries this source and the generated project settings. The same run writes this box's .mcp.json, which is git-ignored.",
+    "{HUB} in a hook or statusLine command becomes $CLAUDE_PROJECT_DIR, the hub root, so the guards travel to any box or hub copy.",
+    "{ENV_PREFIX} becomes harness.toml [project] env_prefix. The Flight hooks run behind a shell guard: <env_prefix>_FLIGHT set (a headless Flight run sets it) or a {HUB}/Flight/seats folder (a hand Flight seated by flight-hooks.py seat); Drawer/flight-hooks.py then exits 0 for a session whose payload session_id holds no seat.",
+    "{MEM_SERVER} becomes the memory MCP server name and {MEM_TOOLS} its tool prefix, both from harness.toml [mem] server_name. {EDITOR_SERVER} becomes the editor MCP server name from harness.toml [product] mcp_server; with no name or no mcp_url it drops out of every server list.",
+    "Every hook runs through Drawer/hooks/run-hook.sh <boot|gate|pass> <script> [args]: it picks the hub .venv interpreter, then py, then a real python3, and with no Python at all a boot announces HUB SETUP REQUIRED, a gate denies all but the preparation command, a pass exits 0.",
+    "A PreToolUse matcher of {GATES} renders from the GATES table in Drawer/project-gate.py; the table is the one home for the gate registrations.",
+    "root lists the capability classes of the one target, the hub root: every session seats there. A class's skills are model-invocable there; every other project skill is user-invocable only. Each harness.toml [project] task_skills entry must be visible there.",
+    "Required Claude behavior lives in each project .claude/settings.json: the status line, effort, the STE-100 output style (.claude/output-styles/ste100.md), skill overrides and empty commit and PR attribution (clean human commits, no AI attribution lines). The lead model defaults to Opus at medium effort; the human changes it from there.",
+    "local renders to .claude/settings.local.json, box-local and git-ignored like .mcp.json, because its folders are this box's absolute paths. It is a short permissions.allow list (settings-sync adds this box's hub interpreter), permissions.additionalDirectories for the product task trees (<product repo>_wt), the hub task worktrees (<hub>_wt), state_root and the temp folders, and these hooks. {LEG_SEAT} becomes a lean SubagentStart boot: one SEAT line of those folders for an implementer or workflow-leg leg, printed with no Python start. The local key takes permissions.allow and hooks only: never a mode, an env or a blanket allow, so nothing runs with permissions bypassed.",
+    "skillOverrides sets rarely used bundled Claude Code skills to name-only (an account skill a box adds is not named here); a plugin skill ignores skillOverrides."
+  ],
+  "common": {
+    "instructionFiles": "claude-md-or-agents-md",
+    "autoMemoryEnabled": false,
+    "attribution": {
+      "commit": "",
+      "pr": ""
+    },
+    "idleCompaction": false,
+    "crossSessionInbound": "accept",
+    "statusLine": {
+      "type": "command",
+      "command": "bash \"{HUB}/Drawer/statusline-command.sh\"",
+      "refreshInterval": 15
+    },
+    "model": "opus",
+    "effortLevel": "medium",
+    "verbose": false,
+    "outputStyle": "STE-100",
+    "awaySummaryEnabled": false,
+    "enableArtifact": false,
+    "promptSuggestionEnabled": false,
+    "showClearContextOnPlanAccept": true,
+    "switchModelsOnFlag": false,
+    "permissions": {
+      "deny": [
+        "Agent",
+        "mcp__ccd_turn"
+      ]
+    },
+    "skillOverrides": {
+      "dataviz": "name-only",
+      "update-config": "name-only",
+      "schedule": "name-only",
+      "run": "name-only",
+      "loop": "name-only",
+      "keybindings-help": "name-only",
+      "fewer-permission-prompts": "name-only",
+      "simplify": "name-only",
+      "security-review": "name-only",
+      "init": "name-only",
+      "claude-api": "name-only",
+      "code-review": "name-only",
+      "plugin-authoring": "name-only"
+    },
+    "env": {
+      "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+      "CLAUDE_CODE_SUBAGENT_EFFORT": "medium",
+      "CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT": "1",
+      "CLAUDE_CODE_SEND_FEEDBACK": "0",
+      "MCP_TIMEOUT": "60000",
+      "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "1",
+      "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0"
+    }
+  },
+  "local": {
+    "permissions": {
+      "allow": [
+        "Workflow",
+        "Bash(git *)",
+        "Bash(.venv/bin/python *)",
+        "Bash(uv *)",
+        "Bash(trash *)",
+        "Bash(head *)",
+        "Bash(sed -n *)",
+        "Bash(printenv *)",
+        "Bash(env)",
+        "Bash(echo \"exit=$?\")",
+        "Bash(echo \"exit $?\")",
+        "mcp__{MEM_SERVER}"
+      ]
+    },
+    "hooks": {
+      "SubagentStart": [
+        {
+          "matcher": "^(implementer|workflow-leg)$",
+          "command": "{LEG_SEAT}",
+          "timeout": 10
+        }
+      ]
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "{GATES}",
+        "command": "sh \"{HUB}/Drawer/hooks/run-hook.sh\" gate \"{HUB}/Drawer/project-gate.py\"",
+        "timeout": 180
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^Bash$",
+        "command": "sh \"{HUB}/Drawer/hooks/run-hook.sh\" pass \"{HUB}/Drawer/seat-note.py\"",
+        "timeout": 30
+      },
+      {
+        "matcher": "^(Edit|Write|MultiEdit|NotebookEdit|Bash)$",
+        "command": "sh \"{HUB}/Drawer/hooks/run-hook.sh\" pass \"{HUB}/Drawer/pad-guard.py\"",
+        "timeout": 30
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "^(startup|resume|clear|compact)$",
+        "command": "sh \"{HUB}/Drawer/hooks/run-hook.sh\" boot \"{HUB}/Drawer/hooks/session-start.py\"",
+        "timeout": 240
+      },
+      {
+        "matcher": "^(startup|resume|clear|compact)$",
+        "command": "{ [ -z \"${{ENV_PREFIX}_FLIGHT:-}\" ] && [ ! -d \"{HUB}/Flight/seats\" ]; } || sh \"{HUB}/Drawer/hooks/run-hook.sh\" pass \"{HUB}/Drawer/flight-hooks.py\"",
+        "timeout": 60
+      }
+    ],
+    "PreCompact": [
+      {
+        "command": "{ [ -z \"${{ENV_PREFIX}_FLIGHT:-}\" ] && [ ! -d \"{HUB}/Flight/seats\" ]; } || sh \"{HUB}/Drawer/hooks/run-hook.sh\" pass \"{HUB}/Drawer/flight-hooks.py\"",
+        "timeout": 30
+      }
+    ],
+    "PostCompact": [
+      {
+        "command": "{ [ -z \"${{ENV_PREFIX}_FLIGHT:-}\" ] && [ ! -d \"{HUB}/Flight/seats\" ]; } || sh \"{HUB}/Drawer/hooks/run-hook.sh\" pass \"{HUB}/Drawer/flight-hooks.py\"",
+        "timeout": 30
+      }
+    ],
+    "SessionEnd": [
+      {
+        "command": "sh \"{HUB}/Drawer/hooks/run-hook.sh\" pass \"{HUB}/Drawer/git-branch-policy.py\" own-cleanup --session-end",
+        "timeout": 120
+      }
+    ],
+    "Stop": [
+      {
+        "command": "{ [ -z \"${{ENV_PREFIX}_FLIGHT:-}\" ] && [ ! -d \"{HUB}/Flight/seats\" ]; } || sh \"{HUB}/Drawer/hooks/run-hook.sh\" pass \"{HUB}/Drawer/flight-hooks.py\"",
+        "timeout": 30
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "command": "sh \"{HUB}/Drawer/hooks/run-hook.sh\" pass \"{HUB}/Drawer/context-nudge.py\"",
+        "timeout": 20
+      }
+    ]
+  },
+  "all_servers": [
+    "{MEM_SERVER}",
+    "{EDITOR_SERVER}"
+  ],
+  "capability_classes": {
+    "session_workflows": {
+      "servers": [],
+      "skills": [
+        "git-flow",
+        "setup",
+        "smoke"
+      ],
+      "access": "Session setup and coding workflows"
+    },
+    "engine_editor": {
+      "servers": [
+        "{EDITOR_SERVER}"
+      ],
+      "skills": [],
+      "access": "The optional single-driver tool server ([product] mcp_server), for the session that drives it"
+    },
+    "operator_stewardship": {
+      "servers": [],
+      "skills": [
+        "harness"
+      ],
+      "access": "Hub estate, rulings, and harness health workflows"
+    },
+    "flight_management": {
+      "servers": [],
+      "skills": [
+        "flight"
+      ],
+      "access": "Task dispatch and card-runs"
+    },
+    "review": {
+      "servers": [],
+      "skills": [
+        "review"
+      ],
+      "access": "Review advice: the milestone-close cold audit"
+    },
+    "memory": {
+      "servers": [
+        "{MEM_SERVER}"
+      ],
+      "skills": [
+        "memory"
+      ],
+      "access": "Hub memory: design, decisions, taste, lessons, facts and the task board"
+    }
+  },
+  "shared_components": {
+    "settings_generator": {
+      "path": "Drawer/settings-sync.py",
+      "owner": "Operator",
+      "integration_reviewer": "Operator"
+    }
+  },
+  "root": [
+    "memory",
+    "engine_editor",
+    "session_workflows",
+    "operator_stewardship",
+    "flight_management",
+    "review"
+  ]
+}

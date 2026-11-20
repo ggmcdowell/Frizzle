@@ -1,0 +1,30 @@
+#!/bin/sh
+# Tracked product-repo hook, reached through the clone's core.hooksPath (PRODUCT-CONVENTIONS.md PRD-2).
+# It runs the product repo's tracked .githooks/pre-push, the push gate (PRD-2), with the same arguments and input:
+# a python shebang runs under the hub Python (a Windows python3 shebang can hit the Store stub), a bash one
+# under bash, any other under sh.
+# The gate fails closed: when [product] gate_command is set and .githooks/pre-push is missing, the push is refused.
+# With no gate set up (gate_command empty and no .githooks/pre-push), it prints one line and passes.
+refuse() { echo "pre-push: push refused: $1" >&2; exit 1; }
+hub=$(cd "$(dirname "$0")/../.." && pwd -P) || refuse "the hub root above this hook cannot be read."
+python="$hub/.venv/bin/python"
+test -e "$python" || python="$hub/.venv/Scripts/python.exe"
+"$python" -c pass </dev/null >/dev/null 2>&1 || refuse "no working hub Python at $python; run uv sync at the hub root."
+repo=$(git rev-parse --show-toplevel) || refuse "git rev-parse found no repository root."
+command=$(cd "$hub" && "$python" -B Drawer/harness_config.py --get product.gate_command </dev/null) ||
+  refuse "cannot read [product] gate_command from $hub/harness.toml or harness.local.toml."
+gate="$repo/.githooks/pre-push"
+if ! test -f "$gate"; then
+  if test -n "$(printf '%s' "$command" | tr -d '[:space:]')"; then
+    refuse "[product] gate_command is set, but the product push gate $gate is missing; commit it to the product repo."
+  fi
+  echo "pre-push: no product push gate set up ([product] gate_command empty, no .githooks/pre-push); push passes." >&2
+  exit 0
+fi
+case $(head -n 1 "$gate") in
+  '#!'*python*) set -- "$python" -B "$gate" "$@" ;;
+  '#!'*bash*) set -- bash "$gate" "$@" ;;
+  *) set -- sh "$gate" "$@" ;;
+esac
+"$@" || refuse "the product push gate $gate failed (the lines above)."
+exit 0

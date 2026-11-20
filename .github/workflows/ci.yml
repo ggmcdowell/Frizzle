@@ -1,0 +1,39 @@
+name: ci
+
+# The hub smoke and the conform gate, on every push to main and every pull request. Drawer/e2e.sh stays manual: it
+# needs Claude Code and API keys, and it costs about 2 USD a run.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hub:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # The tests run with a temp HOME; a uv Python under the real HOME is then not found offline.
+      UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv and gitleaks
+        run: brew install uv gitleaks
+      - name: Git identity for the test repos
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+      - name: Sync the environment
+        run: uv sync
+      - name: Hub smoke
+        run: .venv/bin/python -B Drawer/smoke.py
+      - name: Tracked settings (a runner has no local .mcp.json or settings.local.json)
+        run: .venv/bin/python -B Drawer/settings-sync.py --tracked
+      - name: Harness conform (offline checks but settings: a runner has no seat and no claude)
+        run: .venv/bin/python -B Drawer/harness-conform.py skills hooks pointers agents hiding blobs pins cites config

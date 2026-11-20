@@ -1,0 +1,77 @@
+# Secrets and local config. Never tracked.
+.env
+*.env
+.env.*
+!*.env.example
+*.token
+*.secret
+tokens.yaml
+harness.local.toml
+.mcp.json
+.claude/orchestrator-settings.json
+.claude/settings.local.json
+
+# Graph dumps and database files.
+dumps/
+*.dump
+*.db
+*.db-journal
+*.sqlite
+
+# Caches and dependencies.
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+node_modules/
+
+# Logs and OS files.
+*.log
+.DS_Store
+Thumbs.db
+
+# Local state: each checkout writes its own copy, so it never shares.
+**/.claude/settings.local.json
+/Drawer/project-health/project-health-*.txt
+config.local.yaml
+config.local.yml
+config.local.json
+
+# Evidence stays on the machine that made it: images under a hub folder's reports/ or
+# _research/ are never committed; harness-conform --commit refuses evidence images and big blobs.
+/*/reports/**/*.png
+/*/reports/**/*.jpg
+/*/reports/**/*.jpeg
+/*/_research/**/*.png
+/*/_research/**/*.jpg
+/*/_research/**/*.jpeg
+
+# More caches. No trailing slash on .venv above: a task worktree links it.
+*.pyo
+*.egg-info/
+.mypy_cache/
+*.tmp
+/.tmp/
+
+# Editor droppings and sync-tool files.
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sync-conflict-*
+desktop.ini
+
+# Per-user scratch pads, the hub root's and Flight's: the boot seeds a missing pad; each user keeps their own.
+/SCRATCHPAD.md
+/Flight/SCRATCHPAD.md
+# Course handouts kept per user, and the bytecode of the removed Art/ pipeline.
+/Class/
+/docs/CLASS.md
+/Art/
+# The forever Flight runtime: its comms log and compaction snapshots (Drawer/flight-hooks.py).
+/Flight/log.jsonl
+/Flight/seats/
+/Flight/update-owed.json
+/Flight/compactions/

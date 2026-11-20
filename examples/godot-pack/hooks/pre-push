@@ -1,0 +1,16 @@
+#!/bin/sh
+# Godot pack push gate (PRD-2). Copy it into the product repo as .githooks/pre-push; the hub's Drawer/product-hooks/pre-push runs it.
+# It refuses a push unless .gate-verdict, at the repo root, names the tree of each pushed commit. tools/gate.sh writes
+# that file on a green run (the tree id of HEAD); keep it out of Git (.gitignore). Drawer/product-push.py runs the gate
+# when the verdict does not cover HEAD, then asks this hook again.
+top=$(git rev-parse --show-toplevel) || { echo "pre-push: push refused: no Git repository here." >&2; exit 1; }
+verdict=$(cat "$top/.gate-verdict" 2>/dev/null)
+while read -r lref lsha rref rsha; do
+  case $lsha in *[!0]*) ;; *) continue ;; esac # an all-zero id deletes a ref: nothing to cover
+  tree=$(git rev-parse "$lsha^{tree}" 2>/dev/null) || { echo "pre-push: push refused: cannot read commit $lsha." >&2; exit 1; }
+  if test -z "$verdict" || test "$verdict" != "$tree"; then
+    echo "pre-push: push refused: no green gate verdict for tree $tree. Run: sh tools/gate.sh . on a clean checkout of that commit, or push with Drawer/product-push.py." >&2
+    exit 1
+  fi
+done
+exit 0
