@@ -25,7 +25,7 @@ from unittest.mock import patch
 # the hub and the gate passes everything.
 HERE = os.path.dirname(os.path.realpath(__file__))
 # The files the child imports: the gate, the dispatcher and the shared body they load.
-SOURCES = ("doc-gate.py", "product_worktree.py", "gatelib.py", "harness_config.py", "project-gate.py", "rules_check.py",
+SOURCES = ("doc-gate.py", "product_worktree.py", "gatelib.py", "harness_config.py", "oscompat.py", "project-gate.py", "rules_check.py",
            "rules_audit.py")
 
 BOX = None   # the private hub's temp dir; setUpModule fills these in

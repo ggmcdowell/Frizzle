@@ -34,6 +34,7 @@ DRAWER = Path(__file__).resolve().parents[1]
 if str(DRAWER) not in sys.path:
     sys.path.insert(0, str(DRAWER))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 from runtime import profile  # noqa: E402
 from runtime.mcp_probe import _scrub  # noqa: E402
 
@@ -78,7 +79,7 @@ def _probe_env(hub) -> dict[str, str]:
 
 def _interpreter(hub: Path) -> Path:
     """The interpreter the locked sync prepared: the hub root .venv."""
-    return Path(hub) / ".venv" / "bin" / "python"
+    return oscompat.venv_python(hub)
 
 
 def _mcp_probe():

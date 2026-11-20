@@ -6,6 +6,7 @@ Run it under the prepared interpreter, the hub root virtual environment; a seat 
 has no py launcher (.venv/bin/python):
 
     <python> -B Drawer/runtime/seat.py init
+    .venv/Scripts/python.exe -B Drawer/runtime/seat.py shims   (Windows, once after uv sync)
     <python> -B Drawer/runtime/seat.py configure
     <python> -B Drawer/runtime/seat.py bind-git
     <python> -B Drawer/runtime/seat.py check --json
@@ -19,6 +20,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
 import time
@@ -27,6 +30,7 @@ DRAWER = Path(__file__).resolve().parents[1]
 if str(DRAWER) not in sys.path:
     sys.path.insert(0, str(DRAWER))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 from runtime import children, components, filelock, profile  # noqa: E402
 
 HUB = DRAWER.parent
@@ -65,7 +69,36 @@ class SeatLock(filelock.FileLock):
 
 def interpreter(hub: Path) -> Path:
     """The interpreter the locked sync prepared: the hub root .venv."""
-    return hub / ".venv" / "bin" / "python"
+    return oscompat.venv_python(hub)
+
+
+TRASH_SHIM = ("#!/bin/sh\n"
+              "# Windows trash (Drawer/trash.py): moves each path to the Recycle Bin. Written by seat.py shims.\n"
+              'exec "{python}" -B "{script}" "$@"\n')
+
+
+def shims(hub: Path) -> int:
+    """Windows only: the .venv/bin/python shim (oscompat.ensure_venv_shim) and, when no trash command is on
+    PATH, ~/.local/bin/trash running Drawer/trash.py. Both are Git Bash scripts. Elsewhere it does nothing."""
+    if not oscompat.WINDOWS:
+        print("shims: not Windows; nothing to write")
+        return 0
+    if not interpreter(hub).is_file():
+        print(f"shims: no {interpreter(hub)}; run uv sync first", file=sys.stderr)
+        return 1
+    notes = ["wrote .venv/bin/python" if oscompat.ensure_venv_shim(hub) else ".venv/bin/python in place"]
+    shim = Path.home() / ".local" / "bin" / "trash"
+    text = TRASH_SHIM.format(python=interpreter(hub).as_posix(), script=(hub / "Drawer" / "trash.py").as_posix())
+    found = shutil.which("trash")
+    if found and Path(found).resolve() != shim.resolve():
+        notes.append(f"trash is {found}")
+    elif not shim.is_file() or shim.read_text(encoding="utf-8") != text:
+        shim.parent.mkdir(parents=True, exist_ok=True)
+        with open(shim, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        notes.append(f"wrote {shim}")
+    print("shims: " + "; ".join(notes))
+    return 0
 
 
 def _extend_path() -> None:
@@ -77,8 +110,8 @@ def _extend_path() -> None:
 
 
 def run_command(args, *, cwd, env=None, capture=False, timeout=None) -> subprocess.CompletedProcess:
-    return subprocess.run(args, cwd=str(cwd), env=env, text=True, capture_output=capture,
-                          timeout=timeout, check=False)
+    return subprocess.run(args, cwd=str(cwd), env=env, text=True, encoding="utf-8", errors="replace",
+                          capture_output=capture, timeout=timeout, check=False)
 
 
 def _last_line(done) -> str:
@@ -225,10 +258,15 @@ def init(hub: Path, member: str | None = None) -> int:
     cfg = harness_config.load(hub)
     value = {"schema_version": profile.SCHEMA_VERSION, "hub_root": str(hub), "agent": "claude",
              "member_name": member or str(cfg["project"]["human"]).lower(),
-             "box_name": getpass.getuser(), "role": "operator"}
+             "box_name": box_name(), "role": "operator"}
     profile.save_profile(path, value)
     print(f"{moved}init: wrote profile box={value['box_name']} member={value['member_name']} role={value['role']}")
     return 0
+
+
+def box_name() -> str:
+    """The login name as a profile identifier: a Windows login may hold spaces or other characters."""
+    return re.sub(r"[^A-Za-z0-9_.@-]", "-", getpass.getuser()).lstrip("-._@")[:128] or "user"
 
 
 def trust_dirs(hub: Path) -> list[str]:
@@ -248,7 +286,11 @@ def trust_dirs(hub: Path) -> list[str]:
             dirs.append(Path(f"{main}_wt"))
     out = []
     for folder in dirs:
-        for spelling in (str(folder).rstrip("/") or "/", str(folder.resolve())):
+        # Windows: both separators, since the key form Claude Code writes there is not pinned here.
+        spellings = (str(folder).rstrip("/") or "/", str(folder.resolve()))
+        if oscompat.WINDOWS:
+            spellings = tuple(s.rstrip("\\") for s in spellings) + tuple(Path(s).as_posix() for s in spellings)
+        for spelling in spellings:
             if spelling not in out:
                 out.append(spelling)
     return out
@@ -294,6 +336,8 @@ def configure(hub: Path, run_command) -> int:
     gains only the pins this run brought the seat to, and stale_pins compares it.
     """
     profile.load_profile(profile.default_profile_path(hub))  # a seat without a readable profile stops here
+    if oscompat.WINDOWS:
+        shims(hub)  # a uv sync that rebuilt .venv dropped the shim
     want = pins(hub)
     stamp = stamped_pins(hub)
     done = run_command([str(interpreter(hub)), "-B", str(hub / "Drawer" / "settings-sync.py"),
@@ -488,6 +532,7 @@ def main(argv=None, *, run_command=run_command) -> int:
     repair_parser.add_argument("--clear", action="store_true",
                                help="end today's refusal of this component's repair; repair nothing")
     commands.add_parser("cleanup", help="reclaim the children a check left behind")
+    commands.add_parser("shims", help="Windows: write the .venv/bin/python and trash shims")
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="backslashreplace")
@@ -496,6 +541,8 @@ def main(argv=None, *, run_command=run_command) -> int:
     _extend_path()
     try:
         with SeatLock(hub):
+            if args.command == "shims":
+                return shims(hub)
             if args.command == "init":
                 return init(hub, args.member)
             if args.command == "configure":

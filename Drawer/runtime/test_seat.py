@@ -602,7 +602,7 @@ class OriginTests(SeatFixture):
             git("init", "-q", "--bare", "-b", "main", str(origin), cwd=self.home)
             git("init", "-q", "-b", "main")
             drawer = DRAWER
-            for name in ("git-branch-policy.py", "harness_config.py", "gatelib.py"):
+            for name in ("git-branch-policy.py", "harness_config.py", "gatelib.py", "oscompat.py"):
                 shutil.copy2(drawer / name, self.hub / "Drawer" / name)
             shutil.copytree(drawer / "git-hooks", self.hub / "Drawer" / "git-hooks")
             marker = harness_config.load(DRAWER.parent)["project"]["marker_file"]
@@ -642,7 +642,7 @@ class OriginTests(SeatFixture):
         with self.sterile_env(**env):
             git("init", "-q", "--bare", "-b", "main", str(origin), cwd=self.home)
             git("init", "-q", "-b", "main")
-            for name in ("git-branch-policy.py", "harness_config.py", "gatelib.py"):
+            for name in ("git-branch-policy.py", "harness_config.py", "gatelib.py", "oscompat.py"):
                 shutil.copy2(DRAWER / name, self.hub / "Drawer" / name)
             shutil.copytree(DRAWER / "git-hooks", self.hub / "Drawer" / "git-hooks")
             marker = harness_config.load(DRAWER.parent)["project"]["marker_file"]

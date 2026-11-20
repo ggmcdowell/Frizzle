@@ -82,7 +82,7 @@ def scratch_hub(hub, root):
     import harness_config
     cfg = harness_config.load(hub)
     (fake / cfg["project"]["marker_file"]).touch()
-    for name in ("flight-watchdog.py", "gatelib.py", "harness_config.py", "incident.py", "rules_audit.py", "pushretry.py",
+    for name in ("flight-watchdog.py", "gatelib.py", "harness_config.py", "oscompat.py", "incident.py", "rules_audit.py", "pushretry.py",
                  "runlib.py", "mem/mem.py"):
         shutil.copy(hub / "Drawer" / name, fake / "Drawer" / name)
     return fake, harness_config.env_name("FLIGHT", cfg)

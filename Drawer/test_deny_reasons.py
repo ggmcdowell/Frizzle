@@ -32,7 +32,7 @@ testgit.arm()
 CAP = 200
 GATES = ("project-gate: ", "doc-gate: ")
 SOURCES = ("project-gate.py", "doc-gate.py", "gatelib.py", "git_guard.py", "rules_check.py", "rules_audit.py",
-           "harness_config.py", "product_worktree.py")
+           "harness_config.py", "oscompat.py", "product_worktree.py")
 OWN = "aaaaaaaa-1111-4111-8111-111111111111"
 LONG = "a-long-folder-name-so-each-path-in-a-deny-reason-runs-past-its-clip"
 

@@ -98,6 +98,7 @@ def _build_template(base: Path) -> None:
     # The hooks and the policy read this hub's config. The copy binds its gates, so a
     # refused check-commit or check-push blocks as it will after the base proof.
     shutil.copy2(ROOT / "Drawer/harness_config.py", drawer / "harness_config.py")
+    shutil.copy2(ROOT / "Drawer/oscompat.py", drawer / "oscompat.py")
     shutil.copy2(ROOT / "Drawer/gatelib.py", drawer / "gatelib.py")
     (repo / "harness.toml").write_text(
         re.sub(r"(?m)^bind = false", "bind = true", (ROOT / "harness.toml").read_text(encoding="utf-8")),

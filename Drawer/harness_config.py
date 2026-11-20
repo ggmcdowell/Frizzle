@@ -20,6 +20,9 @@ import sys
 import tomllib
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import oscompat  # noqa: E402
+
 CONFIG = "harness.toml"
 LOCAL = "harness.local.toml"
 NO_LOCAL_VAR = "HARNESS_NO_LOCAL_TOML"
@@ -73,7 +76,7 @@ def load(root=None):
     use_local = use_local and local.is_file()
     if use_local:
         cfg = _merge(cfg, tomllib.loads(local.read_text(encoding="utf-8")))
-    py = root / ".venv" / "bin" / "python"
+    py = oscompat.venv_python(root)
     cfg["derived"] = {
         "root": str(root),
         "local_override": str(local) if use_local else "",
@@ -221,6 +224,8 @@ def main(argv):
         return 0
     if argv[:1] == ["--get"] and len(argv) == 2:
         value = get(cfg, argv[1])
+        # newline="\n": a $(...) capture in Git Bash keeps a CR that Windows text mode adds.
+        sys.stdout.reconfigure(newline="\n")
         print(value if isinstance(value, str) else json.dumps(value))
         return 0
     print(__doc__.strip(), file=sys.stderr)

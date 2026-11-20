@@ -24,6 +24,7 @@ HUB_ROOT = DRAWER_DIR.parent
 for entry in (HOOK_DIR, DRAWER_DIR):
     if str(entry) not in sys.path:
         sys.path.insert(0, str(entry))
+import oscompat  # noqa: E402
 
 OUTPUT_BUDGET = 1500  # characters of the printed JSON; it is ASCII, so bytes too (it once printed 4102)
 # The digest parts to cut first, least important first: a whole line by its lead, else the rows under a header,
@@ -39,7 +40,7 @@ SCRATCHPAD_SEED = (
 
 
 SETUP_NOTICE = (
-    "HUB SETUP REQUIRED: this checkout has no .venv/bin/python or no saved seat profile on this machine. "
+    "HUB SETUP REQUIRED: this checkout has no hub environment (.venv) or no saved seat profile on this machine. "
     "Read .claude/skills/setup/SKILL.md and follow it from step 1. Do nothing else.")
 FLIGHT_STATE = "\n## State\nBACKLOG: none.\n"  # the pad a fresh Flight needs: a State section with its backlog line
 
@@ -51,7 +52,8 @@ NIGHTLY_SECONDS = 60  # mem nightly --if-stale: a snapshot and an export, when t
 
 def run(argv: list[str], timeout: int) -> tuple[int, str, str]:
     try:
-        done = subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout)
+        done = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              timeout=timeout, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError) as exc:
         return 1, "", str(exc)
     return done.returncode, done.stdout.strip(), done.stderr.strip()
@@ -59,7 +61,7 @@ def run(argv: list[str], timeout: int) -> tuple[int, str, str]:
 
 def setup_needed() -> bool:
     """True when this checkout has no prepared interpreter or no saved seat profile (setup skill steps 1 to 4)."""
-    if not (HUB_ROOT / ".venv" / "bin" / "python").exists():
+    if not oscompat.venv_python(HUB_ROOT).is_file():
         return True
     try:
         from runtime import profile

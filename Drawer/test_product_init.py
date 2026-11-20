@@ -52,6 +52,7 @@ class ProductInitTests(unittest.TestCase):
         (self.hub / "Drawer").mkdir(parents=True)
         shutil.copy2(HUB / "harness.toml", self.hub / "harness.toml")
         shutil.copy2(HUB / "Drawer" / "harness_config.py", self.hub / "Drawer" / "harness_config.py")
+        shutil.copy2(HUB / "Drawer" / "oscompat.py", self.hub / "Drawer" / "oscompat.py")
         shutil.copytree(HUB / "Drawer" / "product-hooks", self.hub / "Drawer" / "product-hooks")
         (self.hub / "Drawer" / "settings-sync.py").write_text(SYNC_STUB, encoding="utf-8")
         marker = tomllib.loads((HUB / "harness.toml").read_text(encoding="utf-8"))["project"]["marker_file"]
