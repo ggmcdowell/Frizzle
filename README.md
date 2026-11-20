@@ -1,6 +1,6 @@
 # Spec-driven agentic hub
 
-Status: experimental. macOS only. No support is promised.
+Status: experimental. macOS and Windows 10/11 x64. No support is promised.
 
 This hub is a spec-driven agentic development harness, built on Claude Code. You say what to build; one lead
 session (Flight) writes each feature as a spec card, has agents build and test it, and pushes it. Gates, hooks
@@ -11,7 +11,7 @@ and tests enforce the rules in `AGENTS.md`.
 ```sh
 git clone <your copy: Use this template on GitHub> my-hub && cd my-hub
 Drawer/e2e.sh        # optional, paid: one headless run in a temp clone, the starter card to done (about 8 minutes, about 2 USD)
-claude               # type /setup; quit and start again; type /smoke; then double-click Flight.command and type /flight
+claude               # type /setup; quit and start again; type /smoke; then double-click Flight.command (Windows: Flight.cmd) and type /flight
 ```
 
 The first-run order is: `Drawer/e2e.sh` (optional), `/setup`, quit and start again, `/smoke`, `/flight`.
@@ -20,12 +20,12 @@ before `/setup`, so it installs nothing: it needs `uv`, `claude` (signed in) and
 
 ## Start a Godot game
 
-1. Install [Homebrew](https://brew.sh), the Xcode command line tools (`xcode-select --install`) and
-   [Claude Code](https://code.claude.com/docs) on a Mac, and sign in to Claude Code. Then run `brew install gh`
+1. On a Mac, install [Homebrew](https://brew.sh), the Xcode command line tools (`xcode-select --install`) and
+   [Claude Code](https://code.claude.com/docs), and sign in to Claude Code. Then run `brew install gh`
    and `gh auth login` to sign Git in to GitHub. Setup does not do this. Setup installs uv and gitleaks, and
-   Godot for a game.
+   Godot for a game. On Windows, do the [Windows setup](#windows-setup) first.
 2. On GitHub, press `Use this template` to make your own copy (it can be private). Clone your copy with `git clone`
-   into a folder outside Desktop, Documents and Downloads. Do not use Download ZIP: the hub needs a Git clone
+   into a folder outside Desktop, Documents and Downloads (on Windows also outside OneDrive). Do not use Download ZIP: the hub needs a Git clone
    that can push.
 3. In that folder, run `claude` and type `/setup`.
 4. When setup asks for a product, pick a Godot game and give its folder, for example `~/Projects/MyGame`.
@@ -33,7 +33,7 @@ before `/setup`, so it installs nothing: it needs `uv`, `claude` (signed in) and
    connects it to the hub. With no repository URL, the game's origin is a local bare repo beside it: point it
    at your own GitHub repo later with `git remote set-url origin <url>` in the game folder.
 5. Quit Claude Code fully. Start `claude` again in the hub folder and type `/smoke`.
-6. Double-click `Flight.command` and type `/flight`.
+6. Double-click `Flight.command` (on Windows `Flight.cmd`) and type `/flight`.
 7. Tell Flight what to build, for example "a player that moves with the arrow keys". Flight writes the spec,
    builds it, runs the Godot gate and pushes. It does not wait for you: play each build and type feedback in
    the Flight window.
@@ -57,7 +57,8 @@ Not included: art or asset tools, and an editor tool server for Godot. Add your 
 
 ## Requirements
 
-- macOS, with Homebrew and the Xcode command line tools (git)
+- macOS, with Homebrew and the Xcode command line tools (git); or Windows 10/11 x64 with Git for Windows
+  (Windows on ARM64 is not supported). See [Windows setup](#windows-setup).
 - [Claude Code](https://code.claude.com/docs) 2.1.316 or newer, signed in. Check with `claude --version`; update
   with `claude update`. `/setup` checks the version and asks you to update below it.
   The CLI is needed; the desktop app alone is not enough. Every `/flight` run spends tokens on your Claude plan
@@ -66,9 +67,22 @@ Not included: art or asset tools, and an editor tool server for Godot. Add your 
 - [uv](https://docs.astral.sh/uv/) 0.12 or newer (it installs Python 3.12 or newer)
 - [gitleaks](https://github.com/gitleaks/gitleaks) (the pre-commit secret scan)
 - Optional: a product repo with a test command (its gate)
-- Optional: Godot 4 for a Godot game (setup installs it with `brew install --cask godot`)
-- Optional: `trash` for `Drawer/e2e.sh` (`/usr/bin/trash`, or `brew install trash`)
+- Optional: Godot 4 for a Godot game (setup installs it with `brew install --cask godot` on a Mac; on Windows `winget install --id GodotEngine.GodotEngine -e`)
+- Optional: `trash` for `Drawer/e2e.sh` (`/usr/bin/trash`, or `brew install trash`; on Windows run `seat.py shims` first, see [Windows setup](#windows-setup))
 - Optional: an OpenAI API key (memory embeddings). With a key, card text and search queries go to the OpenAI API.
+
+## Windows setup
+
+Windows 10 or 11 on x64; Claude Code runs the Bash tool and the hooks through Git Bash. In short:
+
+1. `winget install --id Git.Git -e`, then Claude Code in PowerShell: `irm https://claude.ai/install.ps1 | iex`.
+2. `winget install --id astral-sh.uv -e`, `winget install --id Gitleaks.Gitleaks -e` and
+   `winget install --id GitHub.cli -e`.
+3. Clone the hub to a short path outside OneDrive, Desktop, Documents and Downloads, such as `C:\dev\my-hub`.
+4. In Git Bash: `uv sync`, then `.venv/Scripts/python.exe -B Drawer/runtime/seat.py shims`.
+5. Run `claude`, type `/setup`, and later double-click `Flight.cmd` to start Flight.
+
+The full steps, with long paths and Godot: `.claude/skills/setup/WINDOWS.md`.
 
 ## Safety
 

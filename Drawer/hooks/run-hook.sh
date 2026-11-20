@@ -3,8 +3,8 @@
 #
 #   sh run-hook.sh <boot|gate|pass> <script.py> [args...]
 #
-# Interpreter ladder: the prepared hub environment (.venv at the hub root), then a python3
-# that is 3.12 or newer. Every argument passes
+# Interpreter ladder: the prepared hub environment (.venv at the hub root: Scripts/python.exe on Windows,
+# bin/python elsewhere), then a python3, then a python, each 3.12 or newer. Every argument passes
 # through unchanged, so --part and --answer reach the hook. With no interpreter at all the
 # checkout is not set up on this machine: a boot announces HUB SETUP REQUIRED, a gate
 # denies everything except the exact setup install commands (fail closed), and a pass exits 0.
@@ -34,7 +34,11 @@ esac
 # no-op, never a Python error on every prompt or tool call. A gate stays fail closed below.
 if [ "$mode" = pass ] && [ ! -f "$script" ]; then exit 0; fi
 
-here=$(dirname -- "$0")
+# A backslash path (C:\x\hub\Drawer\hooks\run-hook.sh) has no slash for dirname to split: map it to the
+# msys form when cygpath is there (it exists on Git for Windows only).
+self=$0
+case "$self" in *\\*) command -v cygpath >/dev/null 2>&1 && self=$(cygpath -u "$self") ;; esac
+here=$(dirname -- "$self")
 hub=$(cd "$here/../.." 2>/dev/null && pwd) || hub="$here/../.."
 
 # A rung counts only when it runs and is Python 3.12 or newer (pyproject requires-python): a Mac
@@ -46,13 +50,20 @@ runs() { [ -n "$1" ] && "$1" -c 'import sys; sys.exit(sys.version_info < (3, 12)
 python=""
 # The prepared environment is trusted on its executable bit, not probed, because this is every
 # hook call's hot path; probe it too if a half-deleted .venv ever reaches a fresh clone.
-if [ -x "$hub/.venv/bin/python" ]; then python="$hub/.venv/bin/python"; fi
-notice="HUB SETUP REQUIRED (no Python 3.12): this checkout is not set up on this machine. Read .claude/skills/setup/SKILL.md and follow it. Do nothing else."
-reason="HUB SETUP REQUIRED (no Python 3.12): fail-closed denies this call. Only these pass, alone, in this checkout: uv sync, brew install uv, brew install gitleaks. Read .claude/skills/setup/SKILL.md."
+# On Windows uv puts the interpreter at .venv/Scripts/python.exe (-f: msys has no useful x bit), and
+# .venv/bin/python is a shim for command text; the real file comes first.
+if [ -f "$hub/.venv/Scripts/python.exe" ]; then python="$hub/.venv/Scripts/python.exe"
+elif [ -x "$hub/.venv/bin/python" ]; then python="$hub/.venv/bin/python"; fi
+notice="HUB SETUP REQUIRED (no Python 3.12): this checkout is not set up on this machine. Read .claude/skills/setup/SKILL.md and follow it (brew on a Mac, winget on Windows). Do nothing else."
+reason="HUB SETUP REQUIRED (no Python 3.12): fail-closed denies this call. Only uv sync, or brew or winget install of uv or gitleaks, pass alone. Read .claude/skills/setup/SKILL.md."
 if [ -z "$python" ]; then
-    found=$(command -v python3 2>/dev/null)
-    if runs "$found"; then python=$found; fi
+    for name in python3 python; do
+        found=$(command -v "$name" 2>/dev/null)
+        if runs "$found"; then python=$found; break; fi
+    done
 fi
+# Every hub Python runs in UTF-8 mode: a Windows pipe defaults to the ANSI code page.
+export PYTHONUTF8=1
 # A gate answers deny on stdout as JSON and exits 0. A gate never execs: the wrapper keeps the
 # process and holds a budget under the harness timeout. A crash (non-zero exit, no JSON) or a run
 # past the budget ALLOWS the call with a loud warning that names the gate and its error: a gate
@@ -77,7 +88,11 @@ if [ -n "$python" ] && [ "$mode" = "gate" ]; then
         { "$python" -B "$script" "$@" < "$work/in" > "$work/out" 2> "$work/err" &
           echo "$!"; wait "$!"; echo "$?" > "$work/status"; echo ended; } | {
             read -r child
-            read -r -t "$budget" _ || kill -9 "$child"; }
+            # On Windows a venv python.exe is a launcher over the real interpreter: kill -9 stops only the
+            # msys pid, so taskkill ends the whole Windows tree (/proc/<pid>/winpid exists on msys only).
+            read -r -t "$budget" _ || { winpid=$(cat "/proc/$child/winpid" 2>/dev/null)
+                kill -9 "$child"
+                [ -z "$winpid" ] || taskkill //F //T //PID "$winpid" >/dev/null 2>&1; }; }
         status=$(cat "$work/status" 2>/dev/null)
         [ -n "$status" ] || status=1
         cat "$work/err" >&2
@@ -99,9 +114,10 @@ if [ -n "$python" ]; then
 fi
 
 # The shell commands a gate passes with no Python are the setup install commands the setup skill
-# names: uv sync (with at most --frozen), brew install uv and brew install gitleaks, each alone.
+# names: uv sync (with at most --frozen), brew install uv and brew install gitleaks, and on Windows
+# winget install --id astral-sh.uv -e and winget install --id Gitleaks.Gitleaks -e, each alone.
 # Anything else is denied.
-prep='^(uv sync( --frozen)?|brew install (uv|gitleaks))$'
+prep='^(uv sync( --frozen)?|brew install (uv|gitleaks)|winget install --id (astral-sh\.uv|Gitleaks\.Gitleaks) -e)$'
 # The shape is not enough: uv sync prepares the project above the working directory, and a
 # session outside this checkout would prepare another one. Keep it only when the hook runs from
 # inside this checkout (the hub root or a folder below it).

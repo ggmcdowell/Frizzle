@@ -2,8 +2,10 @@
 # Claude Code status line. Four fields: model | effort | context | weekly usage.
 # Portable: reads stdin JSON; no jq dependency or home-directory copy.
 repo=$(cd -- "$(dirname -- "$0")/.." && pwd) || exit 1
+export PYTHONUTF8=1  # every hub Python runs in UTF-8 mode, also under a Windows ANSI code page
 PYTHON=""
-for candidate in "$repo/.venv/bin/python" "$(command -v python3 2>/dev/null)"; do
+# .venv/Scripts/python.exe is the Windows interpreter (the .venv/bin/python there is a shim for command text).
+for candidate in "$repo/.venv/Scripts/python.exe" "$repo/.venv/bin/python" "$(command -v python3 2>/dev/null)" "$(command -v python 2>/dev/null)"; do
   [ -n "$candidate" ] || continue
   if "$candidate" -c pass </dev/null >/dev/null 2>&1; then PYTHON=$candidate; break; fi
 done

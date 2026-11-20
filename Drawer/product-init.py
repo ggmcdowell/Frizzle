@@ -5,13 +5,14 @@
 
 It does these steps in order; each is skipped when it is done already, so a second run changes nothing:
   1. --pack godot: find the Godot binary (GODOT, then godot on PATH, then /Applications/Godot.app) and print its
-     version. With none, print the install command (brew install --cask godot) and exit with [smoke] blocked_exit,
+     version. On Windows GODOT must name the console build (Godot_v..._console.exe). With none, print the
+     install command (brew install --cask godot; winget on Windows) and exit with [smoke] blocked_exit,
      before any change. It downloads and installs nothing.
   2. Make <dir> and its Git repo on main. The origin is --origin <url>, or --local-origin: a bare repo <dir>-origin.git
      beside it. An existing origin stays; a different one is refused.
   3. --pack godot: copy the pack (examples/godot-pack) into <dir>, each file only when absent: tools/gate.sh,
-     .githooks/pre-commit, .githooks/pre-push, GODOT-CONVENTIONS.md, project.godot, tests/smoke_test.gd and .gitignore
-     lines. Commit them, with the first commit on a repo that has none, and push main to origin.
+     .githooks/pre-commit, .githooks/pre-push, GODOT-CONVENTIONS.md, project.godot, tests/smoke_test.gd, .gitattributes (LF
+     in every checkout) and .gitignore lines. The scripts are committed executable, from Windows too. Commit them, with the first commit on a repo that has none, and push main to origin.
   4. Write the [product] lines into harness.local.toml of the main hub checkout: path and, with the pack, its
      gate_command, broad_roots and mcp_server (--mcp-url also writes mcp_url). A line already set stays; a different
      [product] path is refused.
@@ -28,7 +29,7 @@ import argparse
 import json
 import os
 import re
-import shlex
+import ntpath
 import shutil
 import subprocess
 import sys
@@ -38,16 +39,21 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 
 PACK = HERE.parent / "examples" / "godot-pack"
 MAC_APP = Path("/Applications/Godot.app/Contents/MacOS/Godot")
 INSTALL = "brew install --cask godot"
+# Windows: gate.sh reads Godot's stdout, which only the console build (Godot_v..._console.exe) writes.
+WINDOWS_INSTALL = "winget install GodotEngine.GodotEngine, then set GODOT to its _console.exe"
 GDFORMAT_INSTALL = "uv sync (in the hub; uv.lock pins gdtoolkit)"
 # pack file -> product file; each is copied only when the product lacks it
 PACK_FILES = {"gate.sh": "tools/gate.sh", "hooks/pre-commit": ".githooks/pre-commit",
               "hooks/pre-push": ".githooks/pre-push", "GODOT-CONVENTIONS.md": "GODOT-CONVENTIONS.md",
               "template/project.godot": "project.godot", "template/tests/smoke_test.gd": "tests/smoke_test.gd",
-              "template/tests/smoke_test.gd.uid": "tests/smoke_test.gd.uid"}
+              "template/tests/smoke_test.gd.uid": "tests/smoke_test.gd.uid",
+              "template/gitattributes": ".gitattributes"}  # LF in every checkout, whatever core.autocrlf says
+EXECUTABLE = ("tools/gate.sh", ".githooks/pre-commit", ".githooks/pre-push")  # NTFS has no exec bit: the index gets it
 IDENT = ["-c", "user.name=product-init", "-c", "user.email=product-init@example.invalid"]
 GATE_SECONDS = 1800
 
@@ -82,6 +88,13 @@ def find_godot(env=None, app=None):
 def godot_version(godot):
     done = subprocess.run([godot, "--version"], capture_output=True, text=True, timeout=60)
     return (done.stdout.strip().splitlines() or [""])[-1]
+
+
+def same_place(a, b):
+    """Whether two origin or hook paths name one place: equal, or on Windows equal in slash style and case."""
+    if a == b:
+        return True
+    return oscompat.WINDOWS and ntpath.normcase(ntpath.normpath(a)) == ntpath.normcase(ntpath.normpath(b))
 
 
 def toml_value(value):
@@ -131,7 +144,7 @@ def ensure_repo(project, origin, local_origin, changed):
         if not Path(want).exists():
             git_ok(project.parent, "origin", "init", "-q", "--bare", "-b", "main", want)
             changed.append("local origin")
-    if current and want and current != want:
+    if current and want and not same_place(current, want):
         raise Failed("origin", f"origin is {current}, not {want}")
     if not current and not want:
         raise Failed("origin", "the repo has no origin: pass --origin <url> or --local-origin")
@@ -147,7 +160,7 @@ def ensure_ignore(project):
     have = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
     add = [line for line in (PACK / "template" / "gitignore").read_text(encoding="utf-8").splitlines() if line not in have]
     if add:
-        path.write_text("".join(f"{line}\n" for line in [*have, *add]), encoding="utf-8")
+        path.write_text("".join(f"{line}\n" for line in [*have, *add]), encoding="utf-8", newline="\n")
     return bool(add)
 
 
@@ -170,6 +183,9 @@ def commit_and_push(project, paths, message, changed):
     """Commit paths (the first commit of a repo with none takes whatever is staged), then push main to origin."""
     if paths:
         git_ok(project, "add", "add", "--", *paths)
+        for rel in EXECUTABLE:
+            if rel in paths:
+                git_ok(project, "chmod", "update-index", "--chmod=+x", "--", rel)
     empty = git(project, "rev-parse", "--verify", "-q", "HEAD").returncode != 0
     if empty or git(project, "diff", "--cached", "--quiet").returncode:
         ident = [] if git(project, "config", "user.email").stdout.strip() else IDENT
@@ -185,7 +201,7 @@ def commit_and_push(project, paths, message, changed):
 def write_product_lines(main, project, pack, mcp_url, changed):
     """[product] lines of the main checkout's harness.local.toml; the gate_command in force afterwards."""
     path = main / harness_config.LOCAL
-    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    text = path.read_text(encoding="utf-8-sig") if path.is_file() else ""
     try:
         have = tomllib.loads(text).get("product", {})
     except tomllib.TOMLDecodeError as exc:
@@ -200,14 +216,14 @@ def write_product_lines(main, project, pack, mcp_url, changed):
             wanted["mcp_url"] = mcp_url
     new, keys = set_product_lines(text, wanted)
     if keys:
-        path.write_text(new, encoding="utf-8")
+        path.write_text(new, encoding="utf-8", newline="\n")
         changed.append("harness.local.toml")
     return tomllib.loads(new).get("product", {}).get("gate_command", "")
 
 
 def bind(main, project, changed, run):
-    hooks = str(main / "Drawer" / "product-hooks")
-    if git(project, "config", "--get", "core.hooksPath").stdout.strip() != hooks:
+    hooks = (main / "Drawer" / "product-hooks").as_posix()  # forward slashes: git and Git Bash read them on Windows
+    if not same_place(git(project, "config", "--get", "core.hooksPath").stdout.strip(), hooks):
         git_ok(project, "hooks", "config", "core.hooksPath", hooks)
         changed.append("core.hooksPath")
     done = run([sys.executable, "-B", str(main / "Drawer" / "settings-sync.py"), "--mcp"], cwd=str(main),
@@ -220,7 +236,10 @@ def bind(main, project, changed, run):
 
 def run_gate(project, command, godot, blocked, run):
     """The first product gate: [product] gate_command in the checkout. -> (state, exit code)."""
-    argv = [sys.executable if word == "{python}" else word for word in shlex.split(command)]
+    try:
+        argv = harness_config.gate_argv(command)
+    except (ValueError, OSError) as exc:
+        raise Failed("gate", f"[product] gate_command cannot run: {exc}")
     env = {**os.environ, **({"GODOT": godot} if godot else {})}
     done = run(argv, cwd=str(project), env=env, capture_output=True, text=True, timeout=GATE_SECONDS)
     sys.stderr.write((done.stdout or "") + (done.stderr or ""))
@@ -248,11 +267,11 @@ def main(argv=None, hub=None, run=subprocess.run):
         if args.pack:
             godot = find_godot()
             if not godot:
-                sys.stderr.write(f"product-init: BLOCKED: no Godot found (GODOT, PATH, {MAC_APP}). Install it: {INSTALL}\n")
+                sys.stderr.write(f"product-init: BLOCKED: no Godot found (GODOT, PATH, {MAC_APP}). Install it: {INSTALL} (Windows: {WINDOWS_INSTALL})\n")
                 print(json.dumps({"state": "blocked", "reason": "no Godot", "install": INSTALL, "path": str(project)}))
                 return blocked
             row.update(godot=godot, version=godot_version(godot), gdformat=bool(shutil.which("gdformat", path=os.pathsep.join(
-                [str(main_hub / ".venv" / "bin"), os.environ.get("PATH", "")]))))
+                [str(oscompat.venv_bin(main_hub)), os.environ.get("PATH", "")]))))
             sys.stderr.write(f"product-init: godot {godot} {row['version']}\n")
             if not row["gdformat"]:
                 sys.stderr.write(f"product-init: gdformat is not in the hub environment or on PATH; GDScript style is not fixed on commit. Install it: {GDFORMAT_INSTALL}\n")

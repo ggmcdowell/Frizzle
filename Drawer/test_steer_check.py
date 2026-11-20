@@ -107,5 +107,15 @@ class SteerCheckTests(unittest.TestCase):
         self.assertIsNone(steer_check.check_all(self.cfg, [SESSION, "", "deadbeef"], "push"))
 
 
+class WriteState(unittest.TestCase):
+    def test_the_state_replaces_through_oscompat_and_leaves_no_part_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = {"project": {"state_root": tmp}}
+            with mock.patch.object(steer_check.oscompat, "replace", wraps=steer_check.oscompat.replace) as swap:
+                steer_check.write_state(cfg, {"stops": {"a": {}}})
+            self.assertEqual(1, swap.call_count)
+            self.assertEqual(["steer.json"], os.listdir(steer_check.folder(cfg)))
+
+
 if __name__ == "__main__":
     unittest.main()

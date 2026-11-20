@@ -40,7 +40,7 @@ INCIDENT_TAG = "incident"  # the tag of an incident record (Drawer/mem/mem.py)
 SEATS = Path("Flight") / "seats"  # hub-relative: one file per seated hand Flight session (flight-hooks.py seat)
 SESSION_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")  # a full session id
 SESSION_ENV_RE = re.compile(r"(?<![A-Za-z0-9_])CLAUDE_CODE_SESSION_ID=(" + SESSION_RE.pattern + r")\b")
-LONG_JOB_RE = re.compile(r"(?:^|[\s/])long-job\.py\s+_run\s+[A-Za-z0-9._-]+")  # a long-job.py runner (its RUN_MODE argv)
+LONG_JOB_RE = re.compile(r"(?:^|[\s/\\])long-job\.py\s+_run\s+[A-Za-z0-9._-]+")  # a long-job.py runner (its RUN_MODE argv)
 HANDOFF = "flight-handoff"  # under [project] state_root: <task8>/outbox.log, one result row per line
 CLOSING = ("result", "blocked")  # the rows that close a run
 REAP_LOG = "reap.log"  # under [project] state_root: one line per reaped pid

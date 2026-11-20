@@ -429,5 +429,22 @@ class ProductPushTests(unittest.TestCase):
             self.assertEqual(product_push.main([str(self.wt), "--session", "--reviewed"], self.cfg), 2)
 
 
+class HookArgvTests(unittest.TestCase):
+    def hook(self, first):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "pre-push"
+        path.write_text(first + "\n", encoding="utf-8")
+        return path
+
+    def test_the_runner_follows_the_shebang_through_git_shell(self):
+        with mock.patch.object(product_push.oscompat, "git_shell", side_effect=lambda name: f"/git/{name}"):
+            for first, runner in (("#!/bin/sh", "/git/sh"), ("#!/usr/bin/env bash", "/git/bash"), ("echo", "/git/sh")):
+                hook = self.hook(first)
+                self.assertEqual([runner, str(hook)], product_push.hook_argv(hook), first)
+            hook = self.hook("#!/usr/bin/env python3")
+            self.assertEqual([sys.executable, "-B", str(hook)], product_push.hook_argv(hook))
+
+
 if __name__ == "__main__":
     unittest.main()

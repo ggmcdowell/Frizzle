@@ -72,11 +72,32 @@ class ContextNudgeTests(unittest.TestCase):
     def test_a_missing_transcript_never_blocks_the_prompt(self):
         printed = io.StringIO()
         missing = str(self.folder / "no-such-file.jsonl")
-        with unittest.mock.patch("sys.stdin", io.StringIO(json.dumps(event(missing)))), \
+        with unittest.mock.patch("sys.stdin", io.TextIOWrapper(io.BytesIO(json.dumps(event(missing)).encode()))), \
                 unittest.mock.patch("sys.stdout", printed):
             code = nudge.main()
         self.assertEqual(0, code)
         self.assertEqual("", printed.getvalue())
+
+
+    def test_hook_json_is_read_as_utf8_whatever_the_locale(self):
+        folder = self.folder / "Jos\u00e9"
+        folder.mkdir()
+        path = folder / "session.jsonl"
+        rows = [turn(0, 490_000), turn(10, 510_000)]
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        raw = json.dumps(event(str(path)), ensure_ascii=False).encode("utf-8")
+        stdin = io.TextIOWrapper(io.BytesIO(raw), encoding="cp1252", errors="replace")
+        printed = io.StringIO()
+
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return START + timedelta(minutes=11)
+
+        with unittest.mock.patch("sys.stdin", stdin), unittest.mock.patch("sys.stdout", printed), \
+                unittest.mock.patch.object(nudge, "datetime", Clock):
+            self.assertEqual(0, nudge.main())
+        self.assertIn(CONTEXT_LINE.format(size=511), printed.getvalue())
 
 
 if __name__ == "__main__":

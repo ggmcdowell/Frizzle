@@ -79,5 +79,22 @@ class Cli(unittest.TestCase):
         self.assertIn("unreadable", out)
 
 
+class WindowsSpellings(unittest.TestCase):
+    def test_a_lowercase_drive_home_path_fails(self):
+        home = "users"  # split, so this file holds no home path
+        code, out = run(RULES, "see c:\\%s\\someone\\x\n" % home)
+        self.assertEqual(code, 1, out)
+        self.assertIn("absolute home path", out)
+
+    def test_a_crlf_line_in_a_staged_diff_loses_its_cr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for args in (["init", "-q"], ["config", "core.autocrlf", "false"]):
+                subprocess.run(["git", "-C", tmp, *args], check=True, capture_output=True)
+            Path(tmp, "f.txt").write_bytes(b"zorblax\r\n")
+            subprocess.run(["git", "-C", tmp, "add", "f.txt"], check=True, capture_output=True)
+            files = name_check.staged_changes(tmp)
+        self.assertEqual([("f.txt", True, [(1, "zorblax")])], files)
+
+
 if __name__ == "__main__":
     unittest.main()

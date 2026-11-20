@@ -241,7 +241,7 @@ let last = work
 // a model other than the builder's, and only then the rules_audit.py pass rows the pre-commit hook asks for.
 let trim = null
 if (!fault && last?.status === 'trim') {
-  const files = list(last.trim).map(String)
+  const files = list(last.trim).map((f) => String(f).replace(/\\/g, '/').replace(/^\.\//, ''))  // a Windows leg may return backslashes
   const root = String(last.worktree ?? '').trim()
   if (!files.length || !files.every((f) => RULE_FILE.test(f)) || !root) {
     fault = 'the implementer returned trim with no AGENTS.md or SKILL.md path or no worktree'

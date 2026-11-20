@@ -28,6 +28,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gatelib  # noqa: E402
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 
 TEMP_ROOT: Path | None = None  # set by a test; None: temp_root() reads the box
 OWNER = ".owner"  # the pid of the process that owns the run folder
@@ -60,6 +61,12 @@ def base(cfg) -> Path:
 
 def trash(path: Path) -> str | None:
     """Move path to the trash (root AGENTS.md: trash, not rm); None when it went, else why it stays."""
+    if oscompat.WINDOWS:
+        try:
+            oscompat.recycle(path)
+        except OSError as exc:
+            return f"Recycle Bin: {exc}"
+        return None
     tool = shutil.which("trash") or next((t for t in ("/usr/bin/trash", "/opt/homebrew/bin/trash")
                                           if os.access(t, os.X_OK)), None)
     if not tool:

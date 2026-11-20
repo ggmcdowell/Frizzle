@@ -67,6 +67,8 @@ DRAWER = os.path.dirname(os.path.abspath(__file__))
 if DRAWER not in sys.path:
     sys.path.insert(0, DRAWER)
 import harness_config
+import oscompat
+import runlib
 
 # A new seat has no py launcher: printed commands name this host's prepared interpreter.
 PY = ".venv/bin/python -B"
@@ -79,7 +81,7 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 HUB = os.environ.get(harness_config.env_name("HUB")) or os.path.dirname(DRAWER)
-CLAUDE_PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
+CLAUDE_PROJECTS = os.path.join(str(runlib.claude_dir()), "projects")  # CLAUDE_CONFIG_DIR when set
 SESSION_NAME_RE = re.compile(
     r"^(?:(?P<box>.+)-)?(?P<sid>[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$",
     re.IGNORECASE)
@@ -300,7 +302,13 @@ def session_identity(path):
 def resolve_dir(args):
     if args.dir:
         return args.dir
-    return os.path.join(CLAUDE_PROJECTS, mangle(args.project))
+    found = os.path.join(CLAUDE_PROJECTS, mangle(args.project))
+    if oscompat.WINDOWS and not os.path.isdir(found) and os.path.isdir(CLAUDE_PROJECTS):
+        # The folder name is Claude's own spelling of the path: a drive letter's case follows how it was typed.
+        same = [n for n in os.listdir(CLAUDE_PROJECTS) if n.lower() == os.path.basename(found).lower()]
+        if len(same) == 1:
+            return os.path.join(CLAUDE_PROJECTS, same[0])
+    return found
 
 
 def list_sessions(d):
@@ -544,7 +552,7 @@ def cmd_extract(args):
             continue
         safe = re.sub(r"[^A-Za-z0-9._-]", "_", fp)[-120:]
         dest = os.path.join(out, safe)
-        with open(dest, "w", encoding="utf-8") as f:
+        with open(dest, "w", encoding="utf-8", newline="") as f:  # byte-faithful: no CRLF on Windows
             f.write(content)
         n += 1
         print("recovered Write -> %s  (%d chars, original: %s)" % (safe, len(content), fp))

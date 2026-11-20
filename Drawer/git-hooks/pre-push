@@ -2,8 +2,10 @@
 # Tracked hook. Drawer/git-branch-policy.py check-push: branch, remote and landing policy.
 # It blocks only when harness.toml sets [gates] bind = true; until then it reports.
 repo=$(git rev-parse --show-toplevel) || exit 1
+export PYTHONUTF8=1
 python=""
-for candidate in "$repo/.venv/bin/python" "$(command -v python3 2>/dev/null)"; do
+# .venv/Scripts/python.exe is the Windows interpreter; .venv/bin/python there is a shell shim, tried after it.
+for candidate in "$repo/.venv/Scripts/python.exe" "$repo/.venv/bin/python" "$(command -v python3 2>/dev/null)" "$(command -v python 2>/dev/null)"; do
   [ -n "$candidate" ] || continue
   # Python 3.12 or newer only: an older python3 cannot import tomllib (pyproject requires-python).
   if "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1; then python=$candidate; break; fi

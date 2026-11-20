@@ -29,6 +29,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 
 SLUG_RE = re.compile(r"[a-z][a-z0-9]{1,15}")
 SLUG_KEYS = {"project": ("marker_file", "config_root", "state_root"),
@@ -70,6 +71,12 @@ ROOT_OF = {("mem", "db"): "state_root", ("mem", "export_dir"): "state_root",
            ("mem", "env_file"): "config_root", ("names", "denylist"): "config_root"}  # the root a value sits under
 
 
+def _slashes(path):
+    """A given root as harness.toml holds it: on Windows with forward slashes, which a TOML basic string keeps
+    whole (C:\\Users\\me would read \\U as an escape) and Windows reads as well."""
+    return path.replace("\\", "/") if oscompat.WINDOWS else path
+
+
 def plan(template, dest, slug, display, state_root=None, config_root=None):
     """The new values, checked; raises Refused before any write."""
     cfg = harness_config.load(template)  # this box's paths, harness.local.toml included: the copy sources
@@ -94,7 +101,7 @@ def plan(template, dest, slug, display, state_root=None, config_root=None):
             value = base[section][key]
             root = ROOT_OF.get((section, key))
             if section == "project" and given.get(key):
-                values[section][key] = given[key].rstrip("/") or "/"
+                values[section][key] = _slashes(given[key]).rstrip("/") or "/"
             elif root and given[root]:  # the template value's tail after its own root, under the given root
                 head = base["project"][root]
                 if not value.startswith(head + "/"):
@@ -124,11 +131,13 @@ def copy_secret(src, dst):
     if dst.exists():
         return f"keep {dst}: exists"
     dst.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    # O_BINARY: on Windows a C text-mode descriptor would turn each LF of the copy into CRLF.
+    fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     with os.fdopen(fd, "wb") as out, open(src, "rb") as inp:
         shutil.copyfileobj(inp, out)
     os.chmod(dst, 0o600)
-    return f"copied {dst} mode 600"
+    # Windows has no mode bits: the file keeps its user-profile folder's access list.
+    return f"copied {dst} " + ("(user-profile ACL; no mode 600 on Windows)" if oscompat.WINDOWS else "mode 600")
 
 
 def stamp(template, dest, slug, display, origin=None, python=sys.executable, state_root=None, config_root=None,
@@ -149,7 +158,7 @@ def stamp(template, dest, slug, display, origin=None, python=sys.executable, sta
             text = set_key(text, section, key, value)
     old_prefix = base["project"]["env_prefix"]
     text = text.replace(f"{old_prefix}_", f"{values['project']['env_prefix']}_")
-    toml.write_text(text, encoding="utf-8")
+    toml.write_text(text, encoding="utf-8", newline="\n")
 
     hub_name = f"{slug}-hub"
     for name in ("pyproject.toml", "uv.lock"):
@@ -159,7 +168,7 @@ def stamp(template, dest, slug, display, origin=None, python=sys.executable, sta
                          count=1, flags=re.M)
         if n != 1:
             raise RuntimeError(f"{name}: no name = \"{old}-hub\" line")
-        f.write_text(new, encoding="utf-8")
+        f.write_text(new, encoding="utf-8", newline="\n")
 
     git(dest, "mv", base["project"]["marker_file"], values["project"]["marker_file"])
     sync = subprocess.run([python, "-B", str(dest / "Drawer" / "settings-sync.py"), "--apply"], cwd=dest,

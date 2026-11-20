@@ -202,7 +202,8 @@ def add_task(cfg, store, task8, session=None):
         base = BASE if git(main, "rev-parse", "--verify", "--quiet", BASE).returncode == 0 else "HEAD"
         has_branch = git(main, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}").returncode == 0
         args = [str(root), branch] if has_branch else ["-b", branch, str(root), base]
-        added = git(main, "worktree", "add", "--quiet", *args)
+        # longpaths: a Godot import cache is deep, and Windows stops at 260 characters otherwise.
+        added = git(main, "-c", "core.longpaths=true", "worktree", "add", "--quiet", *args)
         if added.returncode:
             raise Refused(f"product worktree {root} not added: {first_line(added.stderr)}")
         try:

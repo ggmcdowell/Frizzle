@@ -585,5 +585,30 @@ class HandFlightTests(unittest.TestCase):
         self.assertFalse((self.base / "seats").exists() and any((self.base / "seats").iterdir()))
 
 
+
+class WatcherProbeTests(unittest.TestCase):
+    """watcher_alive asks oscompat.lock, so Windows answers as truthfully as POSIX."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.lock = Path(tmp.name) / "events-flight.lock"
+        patcher = mock.patch.object(hooks, "EVENTS_LOCK", self.lock)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_no_lock_file_means_no_watcher(self):
+        self.assertFalse(hooks.watcher_alive())
+
+    def test_a_busy_lock_is_a_watcher_and_a_free_one_is_released_at_once(self):
+        self.lock.write_text("", encoding="utf-8")
+        with mock.patch.object(hooks.oscompat, "lock", side_effect=OSError("busy")):
+            self.assertTrue(hooks.watcher_alive())
+        with mock.patch.object(hooks.oscompat, "lock") as take, mock.patch.object(hooks.oscompat, "unlock") as drop:
+            self.assertFalse(hooks.watcher_alive())
+        take.assert_called_once()
+        drop.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,7 @@ Exit codes: 0 = CLEAR or done, 1 = usage error, 75 = PAUSE.
 """
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -27,6 +28,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 
 HUB = Path(__file__).resolve().parents[1]
 PAUSE = 75
@@ -49,9 +51,9 @@ def read_state(cfg):
 def write_state(cfg, row):
     file = folder(cfg) / "steer.json"
     file.parent.mkdir(parents=True, exist_ok=True)
-    part = file.with_name(file.name + ".tmp")
-    part.write_text(json.dumps(row) + "\n", encoding="utf-8")
-    part.replace(file)
+    part = file.with_name("%s.%d.tmp" % (file.name, os.getpid()))
+    part.write_text(json.dumps(row) + "\n", encoding="utf-8", newline="\n")
+    oscompat.replace(part, file)
 
 
 def iso(t):

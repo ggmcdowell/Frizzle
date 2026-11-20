@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import glob
 import json
+import ntpath
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import oscompat  # noqa: E402  (standard library only, like this file)
 
 TRASH = ("/usr/bin/trash", "/opt/homebrew/bin/trash")
 
@@ -35,19 +39,27 @@ def config_paths(env=None):
     return (os.path.join(folder or home, ".claude.json"), os.path.join(folder or os.path.join(home, ".claude"), "projects"))
 
 
+def under(key, temp):
+    """Whether a projects key is temp or a path below it. Windows writes either slash and any drive-letter case."""
+    if oscompat.WINDOWS:
+        key, temp = (ntpath.normcase(ntpath.normpath(p)) for p in (key, temp))
+        return key == temp or key.startswith(temp + "\\")
+    return key == temp or key.startswith(temp + "/")
+
+
 def clean(temp, config, projects, trash):
     """Drop the trust rows under temp from config and trash the transcript folders of temp. Returns (rows, folders)."""
     base = os.path.basename(os.path.normpath(temp))
     if not base.startswith("frz-e2e."):
         raise ValueError("not an e2e temp folder: " + temp)
-    temp = os.path.realpath(temp)
+    temp = os.path.realpath(oscompat.native_path(temp))
     rows = 0
     if os.path.isfile(config):
         with open(config, encoding="utf-8") as handle:
             value = json.load(handle)
         held = value.get("projects") if isinstance(value, dict) else None
         if isinstance(held, dict):
-            gone = [k for k in held if k == temp or k.startswith(temp + "/")]
+            gone = [k for k in held if under(k, temp)]
             for key in gone:
                 del held[key]
             rows = len(gone)
@@ -58,9 +70,16 @@ def clean(temp, config, projects, trash):
                     json.dump(value, handle, indent=2)
                     handle.write("\n")
                 os.chmod(staged, mode)
-                os.replace(staged, config)
+                try:
+                    oscompat.replace(staged, config)
+                except PermissionError:  # Windows: a running client holds the file
+                    os.unlink(staged)
+                    raise RuntimeError("the client config %s is in use; close Claude Code and run it again" % config)
     folders = sorted(glob.glob(os.path.join(glob.escape(projects), glob.escape(re.sub(r"[^A-Za-z0-9]", "-", temp)) + "*")))
-    if folders:
+    if folders and oscompat.WINDOWS:
+        for folder in folders:
+            oscompat.recycle(folder)
+    elif folders:
         done = subprocess.run([trash, *folders], capture_output=True, text=True)
         if done.returncode:
             raise RuntimeError("trash failed: " + (done.stderr or done.stdout).strip())
@@ -72,7 +91,7 @@ def main(argv):
         print(__doc__.strip())
         return 0 if argv in (["-h"], ["--help"]) else 2
     trash = trash_command()
-    if not trash:
+    if not trash and not oscompat.WINDOWS:  # Windows recycles through oscompat
         print("e2e_clean: no trash command on this box (macOS: /usr/bin/trash); the run's traces stay", file=sys.stderr)
         return 1
     config, projects = config_paths()

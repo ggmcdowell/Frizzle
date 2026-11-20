@@ -94,7 +94,7 @@ class RuntimeEnvTests(ProfileFixture):
     def test_independent_python_process_loads_profile_without_a_parent(self):
         prefix = E("")
         env = {k: v for k, v in os.environ.items() if not k.startswith(prefix)}
-        env["HOME"] = str(self.home)
+        env["HOME"] = env["USERPROFILE"] = str(self.home)  # Path.home() reads USERPROFILE on Windows
         code = ("import json,sys;sys.path.insert(0,sys.argv[1]);from runtime import profile as p;"
                 "e=p.runtime_env(sys.argv[2],{});"
                 "print(json.dumps({k:e.get(p.env_name(k)) for k in ('HUB','BOX')}))")
@@ -120,6 +120,19 @@ class SetupRequiredAndMachineTests(ProfileFixture):
 
     def test_machine_from_a_saved_profile(self):
         self.assertEqual(profile.Machine("posix", "claude"), profile.machine(self.hub, {}))
+
+    def test_machine_names_the_host_os(self):
+        with patch.object(profile.oscompat, "WINDOWS", True):
+            self.assertEqual("nt", profile.machine(self.hub, {}).os)
+        with patch.object(profile.oscompat, "WINDOWS", False):
+            self.assertEqual("posix", profile.machine(self.hub, {}).os)
+
+    def test_the_atomic_write_replaces_through_oscompat(self):
+        target = self.home / "atomic.json"
+        with patch.object(profile.oscompat, "replace", wraps=profile.oscompat.replace) as replace:
+            profile._atomic_write(target, b"{}", 0o600)
+        self.assertEqual(1, replace.call_count)
+        self.assertEqual(b"{}", target.read_bytes())
 
     def test_a_seat_without_a_profile_names_no_provider(self):
         self.path.unlink()

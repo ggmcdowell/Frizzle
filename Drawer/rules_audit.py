@@ -233,7 +233,10 @@ def repo_path(file: str) -> str:
     top = git(".", "rev-parse", "--show-toplevel")
     if not top:
         return ""
-    rel = os.path.relpath(os.path.realpath(file), os.path.realpath(top))
+    try:
+        rel = os.path.relpath(os.path.realpath(file), os.path.realpath(top))
+    except ValueError:  # Windows: the file and the repo sit on different drives
+        return ""
     return "" if rel.startswith("..") else Path(rel).as_posix()
 
 

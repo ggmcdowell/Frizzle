@@ -6,7 +6,10 @@
         "-B",
         "Drawer/mem/mem.py",
         "mcp"
-      ]
+      ],
+      "env": {
+        "PYTHONUTF8": "1"
+      }
     }
   }
 }

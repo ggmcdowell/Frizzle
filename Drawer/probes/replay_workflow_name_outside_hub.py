@@ -18,12 +18,12 @@ INCIDENT = "a named Workflow call outside the hub root failed with no refusal"
 
 def replay(hub, product):
     hub = Path(hub)
-    settings = json.loads((hub / ".claude" / "settings.json").read_text())
+    settings = json.loads((hub / ".claude" / "settings.json").read_text(encoding="utf-8"))
     commands = [h.get("command", "") for e in settings.get("hooks", {}).get("PostToolUse", [])
                 if e.get("matcher") == "^Bash$" for h in e.get("hooks", [])]
     if not any("seat-note.py" in c for c in commands):
         return "the settings render registers no seat-note PostToolUse hook on Bash"
-    state = tomllib.loads((hub / "harness.toml").read_text())["project"]["state_root"] + "/jobs"
+    state = tomllib.loads((hub / "harness.toml").read_text(encoding="utf-8"))["project"]["state_root"] + "/jobs"
     event = {"hook_event_name": "PostToolUse", "tool_name": "Bash", "cwd": os.path.expanduser(state),
              "tool_input": {"command": f"cd {state}; ls"}}
     out = subprocess.run([sys.executable, "-B", str(hub / "Drawer" / "seat-note.py")], input=json.dumps(event),
@@ -32,6 +32,7 @@ def replay(hub, product):
         text = json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
     except (ValueError, KeyError, TypeError):
         return f"seat-note gave no note on a cd out of the hub (exit {out.returncode})"
-    if str(hub / ".claude" / "workflows") not in text or "risky-review" not in text:
+    # seat-note prints "<hub>/.claude/workflows": compare in one slash style, as Windows spells the hub with backslashes.
+    if (hub / ".claude" / "workflows").as_posix() not in text.replace("\\", "/") or "risky-review" not in text:
         return "the seat note does not name the risky-review scriptPath"
     return None

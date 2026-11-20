@@ -137,7 +137,7 @@ def replay(hub, product):
         holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
         (sessions / "0.json").write_text(json.dumps({"pid": holder.pid, "sessionId": FLIGHT, "name": "PROBE-FLIGHT"}),
                                          encoding="utf-8")
-        env = {**os.environ, "HOME": str(home), flight_var.removesuffix("FLIGHT") + "MEM_DB": str(root / "mem.db"),
+        env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home), flight_var.removesuffix("FLIGHT") + "MEM_DB": str(root / "mem.db"),
                flight_var.removesuffix("FLIGHT") + "MEM_EMBED": "off", flight_var: str(root / "flight")}  # <PREFIX>_ names
         env.pop(flight_var + "_ONESHOT", None)  # a card-run leg inherits a one-shot Flight's env (incident befb286b)
         dog = subprocess.Popen([sys.executable, "-B", str(fake / "Drawer" / "flight-watchdog.py"), "events",

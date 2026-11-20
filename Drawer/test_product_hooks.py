@@ -29,6 +29,7 @@ class ProductHooks(unittest.TestCase):
         (self.hub / "Drawer").mkdir(parents=True)
         shutil.copy2(HUB / "harness.toml", self.hub / "harness.toml")
         shutil.copy2(HUB / "Drawer/harness_config.py", self.hub / "Drawer/harness_config.py")
+        shutil.copy2(HUB / "Drawer/oscompat.py", self.hub / "Drawer/oscompat.py")
         shutil.copytree(HUB / "Drawer/product-hooks", self.hub / "Drawer/product-hooks")
         marker = tomllib.loads((HUB / "harness.toml").read_text())["project"]["marker_file"]
         (self.hub / marker).write_text("")
@@ -145,6 +146,43 @@ class ProductHooks(unittest.TestCase):
         self.assertEqual(self.git("commit", "-q", "-m", "a", check=False).returncode, 0)
         first = (self.repo / ".git/path-seen").read_text().split(os.pathsep)[0]
         self.assertEqual(os.path.realpath(self.hub / ".venv/bin"), os.path.realpath(first))
+
+    def test_the_hub_scripts_folder_follows_the_bin_folder_on_path(self):
+        # Windows holds the pinned product tools (gdformat) in .venv/Scripts.
+        hook = self.repo / ".githooks/pre-commit"
+        hook.parent.mkdir(exist_ok=True)
+        hook.write_text('#!/bin/sh\necho "$PATH" > "$(git rev-parse --show-toplevel)/.git/path-seen"\n')
+        (self.repo / "a.txt").write_text("a\n")
+        self.git("add", "a.txt")
+        self.assertEqual(self.git("commit", "-q", "-m", "a", check=False).returncode, 0)
+        seen = [os.path.realpath(p) for p in (self.repo / ".git/path-seen").read_text().strip().split(os.pathsep)[:2]]
+        self.assertEqual([os.path.realpath(self.hub / ".venv/bin"), os.path.realpath(self.hub / ".venv/Scripts")], seen)
+
+    # Defect: a Windows checkout has no executable bit, so test -x skipped the repo hook with no word.
+    # Injection: dispatch.sh execs the hook file itself, or the hooks test -x again.
+    def test_a_repo_hook_with_no_executable_bit_runs_under_the_shell_its_shebang_names(self):
+        for name, shebang in (("pre-commit", "#!/bin/sh"), ("post-merge", "#!/usr/bin/env bash")):
+            hook = self.repo / ".githooks" / name
+            hook.parent.mkdir(exist_ok=True)
+            hook.write_text(shebang + f'\necho ran > "$(git rev-parse --show-toplevel)/.git/{name}-ran"\n')
+            hook.chmod(0o644)
+        (self.repo / "a.txt").write_text("a\n")
+        self.git("add", "a.txt")
+        self.assertEqual(self.git("commit", "-q", "-m", "a", check=False).returncode, 0)
+        self.assertEqual("ran\n", (self.repo / ".git/pre-commit-ran").read_text())
+        subprocess.run([str(self.hub / "Drawer/product-hooks/post-merge")], cwd=self.repo, env=self.env, check=True)
+        self.assertEqual("ran\n", (self.repo / ".git/post-merge-ran").read_text())
+
+    def test_a_python_shebang_repo_hook_runs_under_the_hub_python(self):
+        hook = self.repo / ".githooks/pre-commit"
+        hook.parent.mkdir(exist_ok=True)
+        hook.write_text('#!/usr/bin/env python3\nimport pathlib, sys\n'
+                        'pathlib.Path(".git/py-ran").write_text(sys.executable)\n')
+        hook.chmod(0o644)
+        (self.repo / "a.txt").write_text("a\n")
+        self.git("add", "a.txt")
+        self.assertEqual(self.git("commit", "-q", "-m", "a", check=False).returncode, 0)
+        self.assertEqual(os.path.realpath(sys.executable), os.path.realpath((self.repo / ".git/py-ran").read_text()))
 
     def test_commit_runs_the_product_repos_tracked_pre_commit_and_obeys_its_refusal(self):
         # Defect: the pack's pre-commit had no home but an untracked file in the hub's Drawer/product-hooks.

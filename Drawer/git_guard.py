@@ -66,8 +66,10 @@ import os
 import re
 import shlex
 import subprocess
+import tempfile
 
 from gatelib import clip
+import oscompat
 
 SHARED = ("main",)
 FILTER = re.compile(r"\bgit(?:\s+-\S+(?:\s+[^-\s;&|]\S*)?)*\s+filter-(?:branch|repo)\b|\bgit-filter-(?:branch|repo)\b")
@@ -244,7 +246,7 @@ def echoed(words, decode=True):
     command. Producers: echo, print (zsh), printf (its format runs again for each set of leftover arguments), yes,
     and cat or tee of a here-string."""
     run, _ = strip(words)
-    head = os.path.basename(run[0]).lower() if run else ""
+    head = cmd_name(run[0]) if run else ""
     here = here_string(run)
     if head in ("cat", "tee") and here is not None:
         return here + "\n"
@@ -308,7 +310,7 @@ def here_string(run):
 def is_shell(word):
     """True for a shell name (bash5, bash-5.2 and bash.exe too), or a command word the gate cannot name ($SHELL,
     "$SHELL", ${SHELL}, $l, /bin/$0): it fails closed and reads it as a shell."""
-    return bool(SHELL_NAME.fullmatch(os.path.basename(word).lower())) or "$" in word or word.startswith("`")
+    return bool(SHELL_NAME.fullmatch(cmd_name(word))) or "$" in word or word.startswith("`")
 
 
 def shell_run(words):
@@ -319,7 +321,7 @@ def shell_run(words):
         return [] if echoed(words) is not None else run
     for k, w in enumerate(run):
         parts = w.split() if not k or run[k - 1] in ("-S", "--split-string") else [w]  # env -S 'bash -s'
-        if any(SHELL_NAME.fullmatch(os.path.basename(p).lower()) or p.lower() in CODE_RUNNERS for p in parts):
+        if any(SHELL_NAME.fullmatch(cmd_name(p)) or p.lower() in CODE_RUNNERS for p in parts):
             return parts + run[k + 1:]
     return []
 
@@ -427,7 +429,7 @@ def piped_texts(found, k):
 def stage_name(words):
     """The command name of a stage, past redirects and the words that close a group or loop (done, fi, }, ))."""
     run = [w for w in drop_redirects(strip(words)[0]) if w.lower() not in ("done", "fi", "esac", "}", ")")]
-    return os.path.basename(run[0]).lower() if run else ""
+    return cmd_name(run[0]) if run else ""
 
 
 def ansi_c(command):
@@ -677,8 +679,25 @@ def expand(command, decode=True):
     return command, bad
 
 
+def cmd_name(word):
+    """The lower-case command a word names: its last path part without a Windows .exe or .cmd (git.exe is git)."""
+    name = os.path.basename(word).lower()
+    return name[:-4] if name.endswith((".exe", ".cmd")) else name
+
+
+def native(path):
+    """A path from Git Bash command text as this platform reads it. Windows: /c/x is C:/x and /tmp is the temp
+    folder (Git Bash's /tmp). Elsewhere the same text."""
+    path = oscompat.native_path(path)
+    if oscompat.WINDOWS:
+        tmp = re.match(r"/(?:var/)?tmp(?=/|$)", path)
+        if tmp:
+            path = tempfile.gettempdir() + path[tmp.end():]
+    return path
+
+
 def resolve(base, path):
-    return os.path.normpath(os.path.join(base, os.path.expanduser(path)))
+    return os.path.normpath(os.path.join(base, os.path.expanduser(native(path))))
 
 
 def git_call(words, cwd):
@@ -686,7 +705,7 @@ def git_call(words, cwd):
     i = 0
     while i < len(words) and re.fullmatch(r"[A-Za-z_]\w*=.*", words[i]):
         i += 1
-    if i >= len(words) or os.path.basename(words[i]).lower() != "git":
+    if i >= len(words) or cmd_name(words[i]) != "git":
         return None
     i += 1
     folder = cwd
@@ -860,7 +879,7 @@ def no_verify(sub, args):
 def tracked_hooks(value):
     """True when a hooks path is the tracked folder: Drawer/git-hooks or Drawer/product-hooks, relative, or under a
     hub root that holds harness.toml."""
-    path = os.path.normpath(os.path.expanduser(value)).replace("\\", "/")
+    path = os.path.normpath(os.path.expanduser(native(value))).replace("\\", "/")
     if path in TRACKED_HOOKS:
         return True
     return (os.path.isabs(path) and path.endswith(tuple("/" + t for t in TRACKED_HOOKS))
@@ -936,7 +955,7 @@ def hook_bypass_reason(words):
     while i < len(words) and (words[i] in PREFIX_WORDS or (wrapped and WRAPPER_ARG.fullmatch(words[i]))):
         wrapped = wrapped or words[i] in WRAPPERS
         i += 1  # if, then, !, {, sudo -E, timeout 60, nice -n 10, xargs -n1 ...: the command they run is judged
-    head = os.path.basename(words[i]).lower() if i < len(words) else ""
+    head = cmd_name(words[i]) if i < len(words) else ""
     if head in ("export", "env"):
         env += [w for w in words[i + 1:] if ASSIGNMENT.fullmatch(w)]
     if any(w.startswith("GIT_CONFIG") and HOOKS_KEY in w.lower() for w in env):
@@ -948,7 +967,7 @@ def hook_bypass_reason(words):
         rest = words[i + 1:]
         while rest and (ASSIGNMENT.fullmatch(rest[0]) or rest[0].startswith("-")):
             rest = rest[1:]
-        if conform_off and rest and os.path.basename(rest[0]).lower() == "git":
+        if conform_off and rest and cmd_name(rest[0]) == "git":
             return CONFORM_REFUSED
         return hook_bypass_reason(rest) if rest else None
     if head != "git":
@@ -981,7 +1000,7 @@ def strip(words, moved=None):
         words = words[words.index("do") + 1:]
     elif words[:1] in (["for"], ["select"]):  # for t in jq script: the list words are data
         return [], False
-    name = lambda w: (w if "$" in w else os.path.basename(w)).lower()  # /usr/bin/time is time; ${SHELL##*/} stays
+    name = lambda w: (w if "$" in w else cmd_name(w)).lower()  # /usr/bin/time is time; ${SHELL##*/} stays
     while i < len(words) and (name(words[i]) in PREFIX_WORDS or (wrapper and WRAPPER_ARG.fullmatch(words[i]))):
         if wrapper == "command" and re.fullmatch(r"-p?[vV]p?", words[i]):  # command -v x looks x up, runs nothing
             return [], fed
@@ -1004,7 +1023,7 @@ def strip(words, moved=None):
                                       or (words[flag + 1] if flag + 1 < len(words) else ""))  # -I@, -tI X, -J %
     if repl and repl != "{}" and not repl.startswith("="):  # xargs -I@ sh -c 'rm -rf @': @ is a fed target
         rest = [w.replace(repl, "{}") for w in rest]
-    if rest and os.path.basename(rest[0]).lower() == "parallel":  # parallel rm -rf ::: x runs rm -rf x
+    if rest and cmd_name(rest[0]) == "parallel":  # parallel rm -rf ::: x runs rm -rf x
         cmd = [w for w in rest[1:] if w not in (":::", "::::", ":::+")]
         while cmd and cmd[0].startswith("-"):  # parallel's own options come before the command
             cmd = cmd[2:] if cmd[0] in PARALLEL_VALUES else cmd[1:]
@@ -1012,7 +1031,7 @@ def strip(words, moved=None):
             cmd = (cmd[0].split() if "{" not in cmd[0].split()[0] else []) + [p for w in cmd[1:] for p in w.split()]
         inner, _ = strip(cmd, moved)
         return inner, True
-    if rest and os.path.basename(rest[0]).lower() == "env":
+    if rest and cmd_name(rest[0]) == "env":
         rest = rest[1:]
         while rest and (ASSIGNMENT.fullmatch(rest[0]) or rest[0].startswith("-")):
             if rest[0] in ("-S", "--split-string") and len(rest) > 1:  # env -S 'bash -c ...' splits its text
@@ -1035,6 +1054,7 @@ def temp_roots():
 
 
 def below(path, root):
+    path, root = os.path.normcase(path), os.path.normcase(root)  # Windows paths ignore case
     return path != root and path.startswith(root.rstrip(os.sep) + os.sep)
 
 
@@ -1084,7 +1104,8 @@ def place_reason(word, cwds, line, strict=True):
         return f"cannot place {clip(word)}: it names the last folder."
     if word.startswith("~") and os.path.expanduser(word).startswith("~"):  # ~1, ~+1, zsh hash -d ~x
         return f"{clip(word)} names a folder stack entry: unplaceable."
-    absolute = word.startswith(("/", "~"))
+    word = native(word)
+    absolute = word.startswith(("/", "~")) or (oscompat.WINDOWS and bool(re.match(r"[A-Za-z]:[\\/]", word)))
     if UNPLACEABLE.search(word) or (not absolute and not cwds):
         return f"cannot place {clip(word)}: a variable, brace or cd."
     for cwd in ([os.sep] if absolute else cwds):
@@ -1178,7 +1199,7 @@ def clean_reason(folder, args, own):
         elif a in ("-e", "--exclude"):
             skip = True
     for spec in specs or ["."]:
-        path = os.path.realpath(os.path.join(folder, os.path.expanduser(spec)))
+        path = os.path.realpath(os.path.join(folder, os.path.expanduser(native(spec))))
         if UNPLACEABLE.search(spec) or not placed(path, own, strict=False):
             return (f"git clean -x, -X or -d in {clip(path)}: not inside own worktree or temp. "
                     f"Fix: git clean -n to list.")
@@ -1240,7 +1261,7 @@ def find_reason(args, cwds, line):
         roots.append(a)
     at = next((k for k, a in enumerate(args) if a in FIND_EXEC), None)
     inner = strip([a for a in args[at + 1:] if a not in ("{}", "+", ";")])[0] if at is not None else []
-    head = os.path.basename(inner[0]).lower() if inner else ""
+    head = cmd_name(inner[0]) if inner else ""
     if inner and is_shell(inner[0]) and DELETE_TEXT.search(" ".join(inner[1:])):
         return DELETE_REFUSED + "find -exec runs a shell that deletes or kills; cannot place it." + DELETE_REMEDY
     deletes = "-delete" in args or (head in ("rm", "trash") and delete_args(head, inner[1:])[0])
@@ -1253,7 +1274,7 @@ def find_reason(args, cwds, line):
             continue
         end = next((j for j in range(k + 1, len(args)) if args[j] in (";", "+")), len(args))
         call = strip(args[k + 1:end])[0]
-        name = os.path.basename(call[0]).lower() if call else ""
+        name = cmd_name(call[0]) if call else ""
         if name in ("rm", "trash") and delete_args(name, call[1:])[0]:
             here = [] if a in ("-execdir", "-okdir") else cwds
             why = next((w for w in (place_reason(t, here, line) for t in delete_args(name, call[1:])[1] if "{}" not in t) if w), None)
@@ -1273,7 +1294,7 @@ def delete_reason(words, cwds, line, fed=False):
     if not rest:
         return None
     for to in moved:  # env -C d rm -rf x, sudo -D d: place x from d
-        folder = os.path.expanduser(to)
+        folder = os.path.expanduser(native(to))
         if UNPLACEABLE.search(to) or to.startswith(("~-", "~+", "-")) or folder.startswith("~"):
             cwds = []  # env -C $d, env -C ~1: the gate cannot follow it
         else:  # an absolute folder places even after a cd the gate cannot follow
@@ -1281,7 +1302,7 @@ def delete_reason(words, cwds, line, fed=False):
     while len(rest) > 1 and re.fullmatch(r'"?\$(?:\{[^}]*\}|[\w!@#?*$-]+)"?', rest[0]):  # $u rm -rf a: an empty word drops
         rest = rest[1:]
     rest = [re.sub(r'^"?\$(?:\{[^}]*\}|[\w!@#?*$-]+)"?(?=[A-Za-z])', "", rest[0])] + rest[1:]  # ${u}rm, "$u"rm
-    head, args = os.path.basename(rest[0]).lower(), drop_redirects(rest[1:])
+    head, args = cmd_name(rest[0]), drop_redirects(rest[1:])
     if head == "find":
         return find_reason(args, cwds, line)
     if head in ("rm", "trash"):
@@ -1333,7 +1354,7 @@ def law_target(word, cwd):
     """True when a shell write to word lands on a law file outside ~/.claude and outside a loose temp folder."""
     if os.path.basename(word).lower() not in LAW_NAMES:
         return False
-    path = os.path.expanduser(os.path.expandvars(word))
+    path = native(os.path.expanduser(os.path.expandvars(word)))
     if "$" in path or not os.path.isabs(path):
         return True  # a variable, or a relative path a cd in the line can move: the name alone decides
     real = os.path.realpath(path)
@@ -1431,7 +1452,7 @@ def law_verb_reason(words, cwd, raw):
     run, _ = strip(words)
     if not run:
         return None
-    head, args = os.path.basename(run[0]).lower(), drop_redirects(run[1:])
+    head, args = cmd_name(run[0]), drop_redirects(run[1:])
     operands = [a for a in args if not a.startswith("-")]
     if head == "tee" or (head in IN_PLACE and any(IN_PLACE[head].fullmatch(a) for a in args)):
         hit = next((a for a in operands if law_target(a, cwd)), None)
@@ -1453,8 +1474,10 @@ def law_verb_reason(words, cwd, raw):
     if not SCRIPT_WRITES.search(text):
         return None
     home = os.path.expanduser("~/.claude/")
+    flat = lambda t: os.path.normcase(native(t)).replace("\\", "/")  # Windows: a Git Bash /c/... spelling of ~/.claude/ is the same folder
     hit = next((m.group(0) for m in LAW_TOKEN.finditer(text)
-                if not m.group(0).startswith(("~/.claude/", "$HOME/.claude/", "${HOME}/.claude/", home))), None)
+                if not m.group(0).startswith(("~/.claude/", "$HOME/.claude/", "${HOME}/.claude/", home))
+                and not (oscompat.WINDOWS and flat(m.group(0)).startswith(flat(home)))), None)
     return (LAW_REFUSED + f"the {clip(head, 12)} script names {clip(hit)} and writes a file." + LAW_REMEDY) if hit else None
 
 
@@ -1549,7 +1572,7 @@ def inexact(words):
     """True when a producer writes text the gate does not read exactly: a printf conversion other than %s, %b, %d,
     %c and %% (a width, precision, * or length), or \\c, an escaped backslash or a trailing backslash in the text."""
     run, _ = strip(words)
-    head = os.path.basename(run[0]).lower() if run else ""
+    head = cmd_name(run[0]) if run else ""
     here = here_string(run)
     if head not in ("echo", "print", "printf", "yes") and here is None:
         return False
@@ -1585,7 +1608,7 @@ def spliced_line(found, raw="", command=""):
     while k < len(found):
         sep, words = found[k]
         run, _ = strip(words)
-        head = os.path.basename(run[0]).lower() if run else ""
+        head = cmd_name(run[0]) if run else ""
         line_feed = "".join(piped_texts(found, k)) or "".join(line_texts(found, raw, True, command))
         if head in ("source", ".") and any(stdin_path(w) for w in run[1:]):  # a here-string, document or exec feeds it
             parts.append(line_feed)
@@ -1703,7 +1726,7 @@ def feed_reason(command, found, raw, event, cwds):
         return None
     if texts and any(inexact(w) for _, w in found) or re.search(r"<<-?\s*\w[^\n]*\n(?:.*\\\n)", raw or ""):
         return DELETE_REFUSED + INEXACT + DELETE_REMEDY
-    if visible and texts and any(NON_POSIX.fullmatch(os.path.basename(shell_run(w)[0]).lower()) for w in runners
+    if visible and texts and any(NON_POSIX.fullmatch(cmd_name(shell_run(w)[0])) for w in runners
                                  if shell_run(w)) and any("$" in t or "set " in t for t in texts):
         return DELETE_REFUSED + INEXACT + DELETE_REMEDY  # echo 'set x = rm; $x -rf a' | csh
     live_cmd = unquoted_scan(command)[1]
@@ -1749,7 +1772,7 @@ def feed_reason(command, found, raw, event, cwds):
         if not run:
             continue
         flag = next((k for k, w in enumerate(run[:-1]) if re.fullmatch(r"-[a-zA-Z]*c[a-zA-Z]*", w)), None)
-        args = run[1:] if os.path.basename(run[0]).lower() in ("eval", "source", ".") else []
+        args = run[1:] if cmd_name(run[0]) in ("eval", "source", ".") else []
         args = args[1:] if args[:1] == ["--"] else args
         # (site, positional words it can read): a -c body's positional words are judged above as scripts.
         sites = ([(run[0], r"\$\{?[@*1-9]")] if "$" in run[0] else []) + ([(" ".join(args), POSITIONAL.pattern)] if args else []) + (
@@ -1852,12 +1875,12 @@ def reason(command, event, raw=None, cwds=None):
                 cwds = [] if unknown or not cwds else list(dict.fromkeys(cwds + [resolve(c, target) for c in cwds]))
         if verb in ("cd", "pushd", "popd", "chdir"):
             continue
-        head = os.path.basename(next((w for w in words if not re.fullmatch(r"[A-Za-z_]\w*=.*", w)), "")).lower()
+        head = cmd_name(next((w for w in words if not re.fullmatch(r"[A-Za-z_]\w*=.*", w)), ""))
         bypass = hook_bypass_reason(words)
         if bypass:
             return bypass
         run, _ = strip(words)  # sudo bash -c, nohup sh -c, env A=1 bash -c: the shell the wrapper runs
-        shell = os.path.basename(run[0]).lower() if run else ""
+        shell = cmd_name(run[0]) if run else ""
         flag = next((k for k, w in enumerate(run[:-1]) if re.fullmatch(r"-[a-zA-Z]*c[a-zA-Z]*", w)), None)
         inner = (run[flag + 1] if run and is_shell(run[0]) and flag is not None
                  else " ".join(run[2:] if run[1:2] == ["--"] else run[1:]) if shell == "eval" else None)
@@ -1870,7 +1893,7 @@ def reason(command, event, raw=None, cwds=None):
             if body:
                 return body
 
-        if run and re.search(r"[*?[]", run[0]) and any(fnmatch.fnmatchcase(v, os.path.basename(run[0]).lower())
+        if run and re.search(r"[*?[]", run[0]) and any(fnmatch.fnmatchcase(v, cmd_name(run[0]))
                                                        for v in ("rm", "trash", "kill", "pkill", "killall", "fuser", "find", "git")):
             return DELETE_REFUSED + f"{clip(run[0], 24)} is a pattern that can name a delete or kill; cannot place it." + DELETE_REMEDY
         trap = [w for w in run[1:] if w != "--"]

@@ -12,6 +12,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / "long-job.py"
@@ -243,6 +244,82 @@ class LongJobTest(unittest.TestCase):
                 mock.patch.object(gatelib.os, "kill", side_effect=AssertionError("os.kill on Windows")), \
                 mock.patch.object(gatelib, "_kernel32", side_effect=OSError("no kernel32")):
             self.assertTrue(gatelib.pid_alive(4242))
+
+
+
+class WindowsBranchTest(unittest.TestCase):
+    """The Windows branches of long-job.py, run here with oscompat.WINDOWS mocked."""
+
+    def setUp(self):
+        self.mod = load_module()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.cwd = Path(tmp.name)
+        patcher = mock.patch.object(self.mod.oscompat, "WINDOWS", True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_script_gets_its_interpreter_and_an_exe_runs_as_it_is(self):
+        (self.cwd / "tool.py").write_text("", encoding="utf-8")
+        (self.cwd / "go.sh").write_text("", encoding="utf-8")
+        (self.cwd / "shim").write_bytes(b"#!/bin/sh\nexit 0\n")
+        (self.cwd / "plain").write_bytes(b"MZ")
+        with mock.patch.object(self.mod.oscompat, "git_shell", return_value="SH"), \
+                mock.patch.object(self.mod.shutil, "which", side_effect=lambda c: {"npm": "X/npm.cmd", "git": "X/git.exe"}.get(c)):
+            def resolve(*argv):
+                return self.mod.resolve_argv(list(argv), str(self.cwd))
+            self.assertEqual([sys.executable, str(self.cwd / "tool.py"), "a"], resolve("./tool.py", "a"))
+            self.assertEqual(["SH", (self.cwd / "go.sh").as_posix(), "a"], resolve("./go.sh", "a"))
+            self.assertEqual(["SH", (self.cwd / "shim").as_posix(), "-B"], resolve("./shim", "-B"))
+            self.assertEqual([str(self.cwd / "plain"), "x"], resolve("./plain", "x"))
+            self.assertEqual(["cmd", "/c", "X/npm.cmd", "ci"], resolve("npm", "ci"))
+            self.assertEqual(["X/git.exe", "status"], resolve("git", "status"))
+            with self.assertRaises(FileNotFoundError):
+                resolve("nothing-here")
+            with self.assertRaises(FileNotFoundError):
+                resolve("sub/missing.py")
+
+    def test_posix_argv_is_untouched(self):
+        with mock.patch.object(self.mod.oscompat, "WINDOWS", False):
+            self.assertEqual(["./x", "a"], self.mod.resolve_argv(["./x", "a"], str(self.cwd)))
+
+    def test_the_runner_asks_to_leave_the_job_object_and_starts_without_it_when_refused(self):
+        calls = []
+
+        def popen(runner, **kwargs):
+            calls.append(kwargs["creationflags"])
+            if len(calls) == 1:
+                raise PermissionError("job forbids breakaway")
+            return "proc"
+
+        with mock.patch.object(self.mod.oscompat, "popen_group", return_value={"creationflags": 0x208}), \
+                mock.patch.object(self.mod.subprocess, "Popen", popen):
+            self.assertEqual("proc", self.mod.spawn_runner(["r"]))
+        self.assertEqual([0x208 | 0x01000000, 0x208], calls)
+        with mock.patch.object(self.mod.oscompat, "popen_group", return_value={"creationflags": 0x208}), \
+                mock.patch.object(self.mod.subprocess, "Popen", side_effect=OSError("no")), self.assertRaises(OSError):
+            self.mod.spawn_runner(["r"])
+
+    def test_a_record_a_runner_is_replacing_is_read_again(self):
+        record = self.cwd / "j.json"
+        record.write_text('{"a": 1}', encoding="utf-8")
+        real, tries = open, []
+
+        def flaky(*args, **kwargs):
+            tries.append(1)
+            if len(tries) < 3:
+                raise PermissionError("replacing")
+            return real(*args, **kwargs)
+
+        with mock.patch("builtins.open", flaky), mock.patch.object(self.mod.time, "sleep"):
+            self.assertEqual({"a": 1}, self.mod.read(record))
+        self.assertEqual(3, len(tries))
+
+    def test_a_wide_windows_exit_code_never_reads_as_success(self):
+        for code, expect in ((0xC0000005, 5), (256, 1), (0x10000, 1), (300, 44), (3, 3), (0, 0), (-9, 137)):
+            with self.subTest(code=code), mock.patch.object(self.mod, "status", return_value={"state": "done", "exit_code": code}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(expect, self.mod.wait("x", 0))
 
 
 if __name__ == "__main__":

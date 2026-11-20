@@ -49,7 +49,7 @@ SERVER = harness_config.server_name(CONFIG)
 KG = "mcp__%s__" % SERVER.replace("_", "-")
 
 # The files a child imports: the dispatcher, the gate it routes to and the shared gate body.
-SOURCES = ("project-gate.py", "doc-gate.py", "fork-gate.py", "gatelib.py", "rules_check.py", "rules_audit.py", "git_guard.py")
+SOURCES = ("project-gate.py", "doc-gate.py", "fork-gate.py", "gatelib.py", "rules_check.py", "rules_audit.py", "git_guard.py", "oscompat.py")
 
 BOX = None       # the private hub's temp dir; setUpModule fills these in
 BOX_HUB = ""     # the private hub root the child judges against
@@ -1492,6 +1492,24 @@ class UnscopedSearch(unittest.TestCase):
     def test_a_heredoc_body_naming_a_generated_tree_passes(self):
         command = "cat <<'EOF'\ngrep -rn Foo .gen\nEOF"
         self.assertEqual(("pass", ""), judge("Bash", command=command))
+
+
+
+class WindowsSearch(unittest.TestCase):
+    """gatelib on Windows: a Git Bash drive path, a backslash path and an .exe name still name the search."""
+
+    def test_windows_spellings_of_a_broad_root_and_the_project_root_are_refused(self):
+        import gatelib
+        with patch.object(gatelib.oscompat, "WINDOWS", True), \
+                patch.object(gatelib.os.path, "normcase", lambda p: p.lower().replace("\\", "/")), \
+                patch.object(gatelib.os.path, "abspath", lambda p: p), \
+                patch.object(gatelib.os.path, "expanduser", lambda p: p), \
+                patch.object(gatelib, "_product", lambda: ("c:/work/product", ("gen",))):
+            for command in ("grep.exe -rn Foo gen", "find C:\\Work\\Product\\gen -name x",
+                            "C:\\Git\\usr\\bin\\find.exe /c/work/product -name x"):
+                with self.subTest(command=command):
+                    self.assertIsNotNone(gatelib.unscoped_search_reason(command))
+            self.assertIsNone(gatelib.unscoped_search_reason("grep.exe -rn Foo scripts/ui"))
 
 
 class FailClosed(unittest.TestCase):

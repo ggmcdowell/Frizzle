@@ -29,7 +29,7 @@ const EFFORT = pick(LEVELS, a.effort) ? a.effort : ROUTE.effort
 if (a.effort != null && EFFORT !== a.effort) log(`effort ${JSON.stringify(a.effort)} is not low, medium, high, xhigh or max; the route effort stands`)
 const ROOT = typeof a.root === 'string' && a.root ? a.root : 'the hub root (your working folder)'
 const BASE = typeof a.base === 'string' && a.base ? a.base : 'origin/main'
-const FILES = Array.isArray(a.files) && a.files.length ? a.files.filter((f) => typeof f === 'string' && f) : ['AGENTS.md']
+const FILES = Array.isArray(a.files) && a.files.length ? a.files.filter((f) => typeof f === 'string' && f).map((f) => f.replace(/\\/g, '/')) : ['AGENTS.md']
 const cap = (f) => (f.split('/').pop() === 'AGENTS.md' ? 40 : 500)  // Drawer/rules_audit.py CAPS
 const target = (f) => (f.split('/').pop() === 'AGENTS.md' ? 35 : cap(f) - 1)  // an AGENTS.md trim lands near 35
 const modelMismatches = []

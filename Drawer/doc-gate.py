@@ -46,6 +46,7 @@ sys.path.insert(0, HERE)
 import product_worktree
 import gatelib
 import harness_config
+import oscompat
 import rules_check
 
 HUB = os.path.dirname(HERE)
@@ -79,7 +80,7 @@ def absolute(path, base=None):
     path = os.path.expandvars(path)
     if "$" in path:
         return None  # a variable this hook cannot expand resolves at run time, not inside the hub
-    path = os.path.expanduser(path)
+    path = os.path.expanduser(oscompat.native_path(path))
     return os.path.abspath(path if os.path.isabs(path) else os.path.join(base or default_base(), path))
 
 
@@ -168,7 +169,11 @@ def where(root, r):
     """r as a refusal names it: a worktree path carries its worktree."""
     if root == HUB:
         return r
-    return "%s: %s" % (os.path.relpath(root, os.path.dirname(HUB)).replace("\\", "/"), r)
+    try:
+        label = os.path.relpath(root, os.path.dirname(HUB))  # ValueError: another drive on Windows
+    except ValueError:
+        label = root
+    return "%s: %s" % (label.replace("\\", "/"), r)
 
 
 def hiding_place(r):
@@ -240,7 +245,7 @@ def judge_path(r, root=HUB, checkout=None):
     if rules_check.is_shadow_name(r):
         return reason_shadow(where(root, r))
     if root == PRODUCT:
-        if "tests" in r.split("/") and gate_running(checkout or PRODUCT):
+        if "tests" in (r.lower() if oscompat.WINDOWS else r).split("/") and gate_running(checkout or PRODUCT):
             return reason_gate_running(checkout or PRODUCT, r)
         return None
     why = hiding_place(r)

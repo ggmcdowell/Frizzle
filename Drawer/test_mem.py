@@ -145,6 +145,44 @@ class MemTest(unittest.TestCase):
         self.m.add("fact", "x" * 600)
         self.m.add("task", "Lantern wick: " + "w" * (1800 - 60) + ". Why: dim. Done when: lit.", new=True)
 
+    def test_the_path_lint_sees_the_windows_and_git_bash_forms(self):
+        users = "U" + "sers"  # built so the name check reads no literal home path
+        for body in (f"The cache sits at C:/{users}/a/cache.", f"The cache sits at C:\\{users}\\a\\cache.",
+                     f"The cache sits at /c/{users}/a/cache."):
+            with self.subTest(body), self.assertRaises(mem.MemError):
+                self.m.add("fact", body, new=True)
+        self.m.add("fact", "The notes live at https://example.test/x and in ~/Hub.", new=True)
+
+    def test_a_windows_test_run_command_is_recognised(self):
+        for command in ('"C:\\hub\\.venv\\Scripts\\python.exe" -B -m pytest -q',
+                        'C:\\hub\\.venv\\Scripts\\python.exe -m unittest',
+                        '"C:\\Program Files\\Py\\python.exe" -B Drawer\\test_mem.py',
+                        '"C:\\hub\\.venv\\Scripts\\pytest.exe" -q'):
+            with self.subTest(command):
+                self.assertTrue(mem.TEST_RUN_RE.match(command))
+        self.assertFalse(mem.TEST_RUN_RE.match('"C:\\hub\\.venv\\Scripts\\python.exe" Drawer\\mem\\mem.py digest'))
+
+    def test_the_process_table_comes_from_powershell_on_windows(self):
+        done = mock.Mock(stdout="10 1 python -m pytest\n")
+        with mock.patch.object(mem.oscompat, "WINDOWS", True), \
+                mock.patch.object(mem.subprocess, "run", return_value=done) as run:
+            self.assertEqual("10 1 python -m pytest\n", mem.process_table())
+        self.assertEqual("powershell", run.call_args.args[0][0])
+        self.assertEqual(mem.WIN_PS, run.call_args.args[0][-1])
+        with mock.patch.object(mem.subprocess, "run", side_effect=OSError):
+            self.assertEqual("", mem.process_table())
+
+    def test_the_restore_hint_prints_a_windows_path_as_quoted_posix(self):
+        with mock.patch.object(mem.oscompat, "WINDOWS", True):
+            self.assertEqual("'C:/work/a b/hub.db'", mem.sh_arg(Path("C:/work/a b/hub.db")))
+            self.assertEqual("C:/hub/hub.db", mem.sh_arg(Path("C:/hub/hub.db")))
+
+    def test_an_env_file_with_a_bom_still_yields_the_key(self):
+        env = Path(self.tmp.name) / ".env"
+        env.write_bytes(b"\xef\xbb\xbfOPENAI_API_KEY=sk-test\r\n")
+        with mock.patch.object(mem.harness_config, "path", return_value=str(env)):
+            self.assertEqual("sk-test", mem.Embedder._key_from("x"))
+
     def test_an_incident_tagged_task_skips_the_lint(self):
         # A fault record is never lost: no form, a path and a date pass on an incident record.
         self.m.add("task", f"the sweep took {self.HOME}/tree on 2026-11-16 at sweep.py:12", tags=["incident"])
@@ -230,6 +268,14 @@ class MemTest(unittest.TestCase):
         d = self.m.digest()
         self.assertLessEqual(len(d), mem.DIGEST_CHARS)
         self.assertIn("OPEN TASKS (40)", d)
+
+    def test_the_export_is_written_with_lf_and_replaced_through_oscompat(self):
+        self.m.add("lesson", "A lesson for the LF export.")
+        out = Path(self.tmp.name) / "lf.jsonl"
+        with mock.patch.object(mem.oscompat, "replace", wraps=mem.oscompat.replace) as replace:
+            self.m.export(out)
+        replace.assert_called_once()
+        self.assertNotIn(b"\r", out.read_bytes())
 
     def test_export_import_round_trip(self):
         old = self.m.add("lesson", "Old lesson text.")

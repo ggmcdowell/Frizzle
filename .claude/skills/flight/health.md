@@ -57,7 +57,7 @@ or `'Keep verdict <path|group>: <why>'`. A Keep row stops the next sweep from as
 as an ordered hub task, never in the health run:
 - A tracked file: `git rm` in a hub task worktree, then fix each pointer to it; a re-grep finds zero.
 - An untracked or ignored file: trash, only after a dead-target proof: no live session or claim owns it,
-  `lsof` shows no process that holds it, and it is older than 7 days. A missing lock is no proof.
+  `lsof` shows no process that holds it (on Windows, a rename of the file is refused while it is open: that is the proof), and it is older than 7 days. A missing lock is no proof.
 
 ## Close
 

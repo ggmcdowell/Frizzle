@@ -253,5 +253,36 @@ class NewHubTest(unittest.TestCase):
         self.refuse_with(self.tmp / "products" / "fresh2", "zqgiven", "--state-root", str(used))
 
 
+class WindowsBranchTest(unittest.TestCase):
+    """The Windows branches of new-hub.py, run with oscompat.WINDOWS set on any host."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("new_hub_under_test", CLI)
+        cls.mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.mod)
+
+    def test_a_given_windows_root_keeps_its_slashes_forward_so_the_toml_string_parses(self):
+        from unittest import mock
+        with mock.patch.object(self.mod.oscompat, "WINDOWS", True):
+            root = self.mod._slashes("C:\\work\\me\\state")
+        self.assertEqual("C:/work/me/state", root)
+        text = self.mod.set_key('[project]\nstate_root = "x"\n', "project", "state_root", root)
+        self.assertEqual(root, tomllib.loads(text)["project"]["state_root"])
+        self.assertEqual("a\\b", self.mod._slashes("a\\b"))  # POSIX: a backslash is a name character
+
+    def test_a_copied_secret_is_byte_identical_and_names_the_windows_access_list(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = Path(tmp, "src.env"), Path(tmp, "out", "dst.env")
+            src.write_bytes(b"KEY=1\nB=2\n")
+            with mock.patch.object(self.mod.oscompat, "WINDOWS", True):
+                note = self.mod.copy_secret(str(src), str(dst))
+            self.assertEqual(b"KEY=1\nB=2\n", dst.read_bytes())
+            self.assertIn("user-profile ACL", note)
+            self.assertNotIn("mode 600", note.replace("no mode 600", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,8 +2,8 @@
 
 ``[smoke] command`` in harness.toml runs it from the hub root, and hub-land.py runs
 ``[smoke] land_command`` before a land (git-flow skill WRK-11).
-The product step runs ``[product] gate_command`` (split like a shell line; a ``{python}``
-word is the hub interpreter) in the product checkout: the nearest folder at or above the session's product folder
+The product step runs ``[product] gate_command`` (split like a shell line, with forward slashes in paths; a ``{python}``
+word is the hub interpreter, and on Windows a leading ``sh`` or ``bash`` is Git for Windows' own) in the product checkout: the nearest folder at or above the session's product folder
 that holds ``.git``, else the project folder. The project is ``[product] path`` (the local
 (git-ignored) harness.local.toml names it); a card-run leg's task product worktree (``<env_prefix>_PRODUCT_PATH``)
 outranks it. With an empty gate_command or no project, the smoke prints a SKIP line and runs only the hub tests.
@@ -43,7 +43,6 @@ import argparse
 import fnmatch
 import os
 from pathlib import Path
-import shlex
 import re
 import shutil
 import subprocess
@@ -59,7 +58,7 @@ import run_tmp  # noqa: E402
 
 HUB_TEST_GLOBS = ("Drawer/test_*.py", "Drawer/*/test_*.py")
 # Core files: a change to one runs every hub test file, since most tests load them.
-CORE = ("harness.toml", "Drawer/harness_config.py", "Drawer/runlib.py", "Drawer/gatelib.py", "Drawer/smoke.py",
+CORE = ("harness.toml", "Drawer/harness_config.py", "Drawer/runlib.py", "Drawer/gatelib.py", "Drawer/oscompat.py", "Drawer/smoke.py",
         "Drawer/runtime/__init__.py")
 RAN = re.compile(r"(?m)^Ran (\d+) tests? in ")
 SKIPPED = re.compile(r"(?m)^(?:OK|FAILED) \([^)]*\bskipped=(\d+)")
@@ -190,7 +189,7 @@ def scanner_missing(files: list[str] | None, root: Path = HUB) -> str:
     a skip is no proof); else ''. files None: every hub test file."""
     if shutil.which("gitleaks") or (files is not None and SCAN_TEST not in files) or not (root / SCAN_TEST).is_file():
         return ""
-    return f"smoke: HUB RED {SCAN_TEST}: gitleaks is not installed (brew install gitleaks); its secret-scan tests would skip"
+    return f"smoke: HUB RED {SCAN_TEST}: gitleaks is not installed (brew install gitleaks; winget install gitleaks on Windows); its secret-scan tests would skip"
 
 
 def hub_tests(root: Path = HUB, workers: int = 1, files: list[str] | None = None,
@@ -203,7 +202,8 @@ def hub_tests(root: Path = HUB, workers: int = 1, files: list[str] | None = None
     card-run leg inherits are dropped, as conftest.py drops them under pytest (incident 091c2450). stats, when given,
     gets files, ran (tests run) and skipped, read from each file's unittest summary."""
     files = hub_tests_all(root) if files is None else files
-    home = tempfile.TemporaryDirectory(prefix="hub-test-home-")
+    # ignore_cleanup_errors: on Windows a sqlite file or a git child may still hold a handle when the tests end.
+    home = tempfile.TemporaryDirectory(prefix="hub-test-home-", ignore_cleanup_errors=True)
     flight = {harness_config.env_name(name, harness_config.load(root)) for name in ("FLIGHT", "FLIGHT_ONESHOT")}
     env = {k: v for k, v in (os.environ if env is None else env).items() if k not in flight}
     env = harness_config.test_home({**env, harness_config.NO_LOCAL_VAR: "1"}, home.name)
@@ -248,13 +248,16 @@ def product_step(cfg) -> tuple[list[str], Path] | int | str:
         print(f"smoke: {source} {project} is not a folder")
         return 2
     try:
-        argv = shlex.split(command)
+        argv = harness_config.gate_argv(command)
     except ValueError as exc:
         print(f"smoke: [product] gate_command does not parse: {exc}: {command}")
         return 2
+    except OSError as exc:
+        print(f"smoke: [product] gate_command cannot start: {exc}: {command}")
+        return 2
     if not argv:
         return "smoke: SKIP product step: [product] gate_command is empty; only the hub tests ran"
-    return [sys.executable if item == "{python}" else item for item in argv], checkout(project)
+    return argv, checkout(project)
 
 
 def main(argv: list[str] | None = None) -> int:

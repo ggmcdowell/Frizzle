@@ -82,6 +82,7 @@ class HubLandTests(unittest.TestCase):
         shutil.copy2(ROOT / "Drawer/steer_check.py", drawer / "steer_check.py")
         shutil.copy2(ROOT / "Drawer/pushretry.py", drawer / "pushretry.py")
         shutil.copy2(ROOT / "Drawer/run_tmp.py", drawer / "run_tmp.py")
+        shutil.copy2(ROOT / "Drawer/oscompat.py", drawer / "oscompat.py")  # runtime/profile.py imports it
         shutil.copy2(ROOT / "Drawer/review_pass.py", drawer / "review_pass.py")
         (drawer / "mem").mkdir()
         (drawer / "mem" / "mem.py").write_text(STUB_MEM, encoding="utf-8")

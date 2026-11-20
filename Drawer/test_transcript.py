@@ -192,5 +192,30 @@ class CodeModeTests(unittest.TestCase):
         self.assertEqual(["implementer", "workflow-leg"], line["below_bar"])  # no type is exempt from the bar
 
 
+
+class WindowsProjectDirTests(unittest.TestCase):
+    def test_the_project_folder_is_found_whatever_the_drive_letter_case(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        projects = Path(folder.name)
+        (projects / "C--Users-x-Hub").mkdir()
+        args = type("Args", (), {"dir": None, "project": "C:\\Users\\x\\Hub"})()
+        with patch.object(TRANSCRIPT, "CLAUDE_PROJECTS", str(projects)), \
+                patch.object(TRANSCRIPT, "mangle", return_value="c--Users-x-Hub"):
+            self.assertEqual(str(projects / "c--Users-x-Hub"), TRANSCRIPT.resolve_dir(args))  # POSIX: exact only
+            with patch.object(TRANSCRIPT.oscompat, "WINDOWS", True):
+                self.assertEqual(str(projects / "C--Users-x-Hub"), TRANSCRIPT.resolve_dir(args))
+            (projects / "c--Users-x-Hub").mkdir()
+            with patch.object(TRANSCRIPT.oscompat, "WINDOWS", True):
+                self.assertEqual(str(projects / "c--Users-x-Hub"), TRANSCRIPT.resolve_dir(args))
+
+    def test_the_projects_folder_follows_claude_config_dir(self):
+        with patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": "/cfg/claude"}):
+            spec = importlib.util.spec_from_file_location("transcript_cfg", PATH)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        self.assertEqual(os.path.join("/cfg/claude", "projects"), mod.CLAUDE_PROJECTS)
+
+
 if __name__ == "__main__":
     unittest.main()

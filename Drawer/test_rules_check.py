@@ -67,6 +67,19 @@ class RulesCheckTests(unittest.TestCase):
         self.assertFalse(rules_check.shadowing(str(self.home / ".claude" / "CLAUDE.md"), self.hub))
         self.assertFalse(rules_check.shadowing(str(self.hub / "Drawer" / "CLAUDE.md"), self.hub))
 
+    def test_a_lower_case_shadow_file_counts_only_where_the_file_system_ignores_case(self):
+        self.assertFalse(rules_check.is_shadow_name("/hub/" + "claude.md"))
+        with mock.patch.object(rules_check.oscompat, "WINDOWS", True):
+            self.assertTrue(rules_check.is_shadow_name("C:/hub/" + "claude.md"))
+            self.assertTrue(rules_check.is_shadow_name("C:/hub/" + "Claude.Local.md"))
+            self.assertFalse(rules_check.is_shadow_name("C:/hub/AGENTS.md"))
+
+    def test_cli_version_runs_the_claude_that_which_finds(self):
+        with mock.patch.object(rules_check.shutil, "which", return_value="/x/claude.cmd"), \
+                mock.patch.object(rules_check.subprocess, "run", return_value=mock.Mock(stdout="2.1.314")) as run:
+            self.assertEqual("2.1.314", rules_check.cli_version())
+        self.assertEqual("/x/claude.cmd", run.call_args.args[0][0])
+
     def test_a_claude_file_in_a_product_worktree_is_reported_as_added_rules(self):
         (self.product / "app" / "CLAUDE.local.md").write_text("x\n")
         self.assertEqual([f"RULES ADDED: {self.product / 'app' / 'CLAUDE.local.md'} adds rules when a session "

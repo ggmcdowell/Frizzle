@@ -127,6 +127,42 @@ class ProductInitTests(unittest.TestCase):
         self.assertIn("commit", row["changed"])
         self.assertIn("harness.local.toml", row["changed"])
 
+    def test_the_pack_ships_lf_rules_and_commits_its_scripts_executable(self):
+        self.init("--pack", "godot", "--local-origin")
+        attrs = (self.product / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("* text=auto eol=lf", attrs)
+        self.assertIn(".githooks/* text eol=lf", attrs)
+        modes = {line.split("\t")[1]: line.split()[0] for line in git(self.product, "ls-files", "-s").splitlines()}
+        for rel in ("tools/gate.sh", ".githooks/pre-commit", ".githooks/pre-push"):
+            self.assertEqual("100755", modes[rel], rel)
+        self.assertEqual("100644", modes[".gitattributes"])
+
+    def test_local_files_the_run_writes_are_lf_on_every_platform(self):
+        self.init("--pack", "godot", "--local-origin")
+        for path in (self.local, self.product / ".gitignore"):
+            self.assertNotIn(b"\r", path.read_bytes(), path.name)
+
+    def test_a_bom_in_the_local_toml_does_not_stop_the_run(self):
+        self.local.write_bytes(b"\xef\xbb\xbf[mem]\ndb = \"/db\"\n")
+        code, row, _ = self.init("--local-origin")
+        self.assertEqual((0, "ready"), (code, row["state"]), row)
+        self.assertEqual(str(self.product), self.product_table()["path"])
+
+    def test_windows_names_one_place_in_either_slash_style_and_case(self):
+        same = product_init.same_place
+        with mock.patch.object(product_init.oscompat, "WINDOWS", False):
+            self.assertFalse(same("C:\\Work\\x-origin.git", "c:/work/x-origin.git"))
+        with mock.patch.object(product_init.oscompat, "WINDOWS", True):
+            self.assertTrue(same("C:\\Work\\x-origin.git", "c:/work/x-origin.git"))
+            self.assertFalse(same("C:\\Work\\x-origin.git", "C:/Work/y-origin.git"))
+
+    def test_a_gate_command_that_cannot_start_is_failed_at_the_gate_step(self):
+        self.local.write_text('[product]\ngate_command = "sh tools/gate.sh ."\n', encoding="utf-8")
+        with mock.patch.object(product_init.harness_config.oscompat, "WINDOWS", True), \
+                mock.patch.object(product_init.harness_config.oscompat, "git_shell", side_effect=OSError("no Git sh")):
+            code, row, _ = self.init("--local-origin", "--pack", "godot")
+        self.assertEqual((1, "failed", "gate"), (code, row["state"], row["step"]), row)
+
     def test_a_second_run_changes_nothing(self):
         self.init("--pack", "godot", "--local-origin")
         head = git(self.product, "rev-parse", "HEAD")

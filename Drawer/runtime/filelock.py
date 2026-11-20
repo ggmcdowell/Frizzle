@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
 from pathlib import Path
+import sys
 import time
+
+_DRAWER = Path(__file__).resolve().parents[1]
+if str(_DRAWER) not in sys.path:
+    sys.path.insert(0, str(_DRAWER))
+import oscompat  # noqa: E402
 
 DEFAULT_SECONDS = 1200.0
 
@@ -21,8 +26,8 @@ class LockBusy(RuntimeError):
 class FileLock:
     """An exclusive lock on one byte of one file, with a bounded wait.
 
-    flock conflicts across separate open handles, so threads and processes serialize the
-    same way.
+    oscompat.lock (flock on POSIX, one byte past the data on Windows) conflicts across separate
+    open handles, so threads and processes serialize the same way.
     """
 
     def __init__(self, path, timeout: float = DEFAULT_SECONDS):
@@ -40,8 +45,7 @@ class FileLock:
         deadline = time.monotonic() + self.timeout
         while True:
             try:
-                self.handle.seek(0)
-                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                oscompat.lock(self.handle)
                 return self
             except OSError as exc:
                 if time.monotonic() >= deadline:
@@ -53,7 +57,6 @@ class FileLock:
     def __exit__(self, _kind, _value, _traceback):
         if self.handle is None:
             return
-        self.handle.seek(0)
-        fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        oscompat.unlock(self.handle)
         self.handle.close()
         self.handle = None

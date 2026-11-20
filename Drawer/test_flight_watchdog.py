@@ -554,5 +554,46 @@ class EventsTest(unittest.TestCase):
         self.assertEqual([], self.run_events())  # the old state is whole: the DONE never prints twice
 
 
+
+class WindowsBranchTest(unittest.TestCase):
+    """The native Windows branches, run here with oscompat.WINDOWS mocked: no ps or lsof, tree kill, shared lock."""
+    COMMAND = '"C:\\hub\\.venv\\Scripts\\python.exe" -B Drawer/flight-watchdog.py events --lock test'
+
+    def orphan(self, lock="test", parent="gone", command=COMMAND):
+        done = subprocess.CompletedProcess([], 0, stdout=json.dumps({"ParentProcessId": 7, "CommandLine": command}))
+        with mock.patch.object(dog.oscompat, "WINDOWS", True), mock.patch.object(dog.subprocess, "run", return_value=done) as run, \
+                mock.patch.object(dog.gatelib, "pid_state", return_value=parent):
+            found = dog.orphan_watcher(4242, lock)
+        self.assertIn("powershell", run.call_args.args[0][0])
+        self.assertIn("ProcessId=4242", run.call_args.args[0][-1])
+        return found
+
+    def test_an_orphan_is_read_from_win32_process_and_its_parent_pid(self):
+        self.assertTrue(self.orphan())
+        self.assertFalse(self.orphan(lock="other"))
+        self.assertFalse(self.orphan(parent="live"))  # its parent still runs: not an orphan
+        self.assertFalse(self.orphan(command="python -B Drawer/other.py events --lock test"))
+        self.assertFalse(self.orphan(command=None))
+
+    def test_a_powershell_failure_is_no_orphan(self):
+        with mock.patch.object(dog.oscompat, "WINDOWS", True), \
+                mock.patch.object(dog.subprocess, "run", side_effect=FileNotFoundError("powershell")):
+            self.assertFalse(dog.orphan_watcher(4242, "test"))
+
+    def test_reap_stops_the_tree_with_kill_tree_and_takes_the_lock(self):
+        with mock.patch.object(dog.oscompat, "WINDOWS", True), mock.patch.object(dog.oscompat, "kill_tree") as kill, \
+                mock.patch.object(dog.oscompat, "lock"), mock.patch.object(dog.os, "kill", side_effect=AssertionError("os.kill")):
+            self.assertTrue(dog.reap(4242, object()))
+        kill.assert_called_once_with(4242)
+
+    def test_reap_of_a_gone_pid_still_tries_the_lock_and_other_errors_give_up(self):
+        with mock.patch.object(dog.oscompat, "WINDOWS", True), mock.patch.object(dog.oscompat, "lock"), \
+                mock.patch.object(dog.oscompat, "kill_tree", side_effect=ProcessLookupError(4242)):
+            self.assertTrue(dog.reap(4242, object()))
+        with mock.patch.object(dog.oscompat, "WINDOWS", True), mock.patch.object(dog.oscompat, "lock"), \
+                mock.patch.object(dog.oscompat, "kill_tree", side_effect=OSError("taskkill")):
+            self.assertFalse(dog.reap(4242, object()))
+
+
 if __name__ == "__main__":
     unittest.main()

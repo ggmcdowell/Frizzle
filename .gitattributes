@@ -9,6 +9,8 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 Drawer/git-hooks/* text eol=lf
+# cmd.exe reads a batch file by CRLF lines.
+*.cmd text eol=crlf
 # The Workflow tool refuses a script with CR bytes as control characters.
 .claude/workflows/*.js text eol=lf
 

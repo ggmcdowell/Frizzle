@@ -1,5 +1,5 @@
 #!/bin/sh
-# Flight.command: double-click it in Finder (or run ./Flight.command) to open the hub session with Code Mode on.
+# Flight.command: double-click it in Finder (or run ./Flight.command; on Windows double-click Flight.cmd, which runs this file in Git Bash) to open the hub session with Code Mode on.
 # The session then waits for input: type /flight to start the lead session.
 #
 # Claude Code takes CLAUDE_CODE_EXPERIMENTAL_CODE_MODE only from the shell it starts in, a --settings file or the
@@ -12,10 +12,10 @@
 cd "$(dirname "$0")" || exit 1
 if ! command -v claude >/dev/null 2>&1; then
   echo "Claude Code is not installed on this computer."
-  echo "Install it (https://docs.claude.com/en/docs/claude-code), then double-click this file again."
+  echo "Install it (https://docs.claude.com/en/docs/claude-code), then start this file again (Windows: Flight.cmd)."
   exit 1
 fi
-if [ ! -x .venv/bin/python ] || [ "$(git config --get hub.bound 2>/dev/null)" != true ]; then
+if { [ ! -x .venv/bin/python ] && [ ! -f .venv/Scripts/python.exe ]; } || [ "$(git config --get hub.bound 2>/dev/null)" != true ]; then
   exec claude "$@" /setup
 fi
 export CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1

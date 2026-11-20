@@ -106,7 +106,7 @@ def main():
         print(__doc__)
         return 0
     try:
-        text = run(json.load(sys.stdin), datetime.now(timezone.utc))
+        text = run(json.loads(sys.stdin.buffer.read()), datetime.now(timezone.utc))
     except Exception:  # a nudge that breaks a prompt costs more than the nudge saves
         return 0
     if text:

@@ -40,7 +40,6 @@ import importlib.util
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -48,6 +47,7 @@ from pathlib import Path
 DRAWER = Path(__file__).resolve().parent
 sys.path.insert(0, str(DRAWER))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 import pushretry  # noqa: E402
 import review_pass  # noqa: E402
 import steer_check  # noqa: E402
@@ -85,7 +85,7 @@ def hook_argv(hook):
     first = hook.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
     if first.startswith("#!") and "python" in first:
         return [sys.executable, "-B", str(hook)]
-    return ["bash" if first.startswith("#!") and "bash" in first else "sh", str(hook)]
+    return [oscompat.git_shell("bash" if first.startswith("#!") and "bash" in first else "sh"), str(hook)]
 
 
 def covered(root, hook):
@@ -97,9 +97,8 @@ def covered(root, hook):
 
 
 def gate_argv(cfg):
-    """[product] gate_command split like a shell line, {python} as the hub interpreter; [] when empty."""
-    command = str((cfg.get("product") or {}).get("gate_command") or "").strip()
-    return [sys.executable if word == "{python}" else word for word in shlex.split(command)]
+    """[product] gate_command as an argv (harness_config.gate_argv); [] when empty."""
+    return harness_config.gate_argv(str((cfg.get("product") or {}).get("gate_command") or "").strip())
 
 
 def main(argv=None, cfg=None):
@@ -132,6 +131,8 @@ def main(argv=None, cfg=None):
         gate = gate_argv(cfg)
     except ValueError as exc:
         return fail("gate", f"[product] gate_command does not parse: {exc}")
+    except OSError as exc:
+        return fail("gate", f"[product] gate_command cannot start: {exc}")
     if not Path(args[0]).is_dir():
         return fail("worktree", f"{args[0]} is not a folder", 2)
     top = git(Path(args[0]), "rev-parse", "--show-toplevel")

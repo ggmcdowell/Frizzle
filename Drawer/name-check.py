@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness_config  # noqa: E402
 
 SEP = re.compile(r"[\s_.\-]+")
-HOME_PATH = re.compile(r"(/Users/|/home/|[A-Za-z]:\\Users\\)[A-Za-z0-9._-]+")
+HOME_PATH = re.compile(r"(/Users/|/home/|(?i:[A-Za-z]:\\Users\\))[A-Za-z0-9._-]+")
 
 
 def compile_rule(line):
@@ -100,7 +100,7 @@ def staged_changes(root):
             m = HUNK.match(line)
             n, header = (int(m.group(1)) if m else 0), False
         elif not header and line.startswith("+") and path is not None:
-            lines.append((n, line[1:]))
+            lines.append((n, line[1:].rstrip("\r")))
             n += 1
     if path is not None:
         files.append((path, path in new_paths, lines))

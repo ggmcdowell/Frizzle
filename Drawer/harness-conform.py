@@ -54,7 +54,6 @@ import json
 import re
 import os
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -64,6 +63,7 @@ from urllib.parse import urlparse
 HUB = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HUB / "Drawer"))
 import harness_config  # noqa: E402  (Drawer/ is on the path from here on)
+import oscompat  # noqa: E402
 
 # The hub's file folders: a backticked path under one is a hub pointer.
 FOLDERS = ("Flight",)
@@ -95,7 +95,7 @@ def _run(args: list[str], timeout: int = 600, env=None):
     try:
         # Own process group, so a timeout reaches the grandchildren too.
         p = subprocess.Popen(args, cwd=HUB, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             text=True, env=env, start_new_session=True)
+                             text=True, env=env, **oscompat.popen_group())
     except FileNotFoundError as exc:
         return None, str(exc)
     try:
@@ -103,7 +103,10 @@ def _run(args: list[str], timeout: int = 600, env=None):
     except subprocess.TimeoutExpired:
         # Kill the whole tree before draining: a grandchild holding the pipe open
         # would otherwise keep communicate() waiting past the bound.
-        os.killpg(p.pid, signal.SIGKILL)
+        try:
+            oscompat.kill_tree(p.pid)
+        except OSError:  # ProcessLookupError: it ended just now
+            pass
         p.kill()
         p.communicate()
         return None, f"timed out after {timeout}s"
@@ -308,7 +311,7 @@ def _mem_db():
 def _superseded(db: Path) -> dict:
     """uuid8 -> uuid8 of its successor, for each superseded card whose uuid8 no live card shares."""
     import sqlite3
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con = sqlite3.connect(Path(db).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         rows = con.execute("SELECT substr(id,1,8), substr(superseded_by,1,8) FROM cards").fetchall()
     finally:
@@ -398,8 +401,8 @@ def _index_sizes(paths=None) -> dict:
     if not blobs:
         return {}
     probe = subprocess.run(["git", "cat-file", "--batch-check=%(objectsize)"], cwd=HUB,
-                           input="\n".join(blobs.values()) + "\n", capture_output=True, text=True)
-    sizes = probe.stdout.splitlines()
+                           input=("\n".join(blobs.values()) + "\n").encode(), capture_output=True)  # bytes: no CRLF
+    sizes = probe.stdout.decode("utf-8", "replace").splitlines()
     return {path: int(size) for path, size in zip(blobs, sizes) if size.strip().isdigit()}
 
 
@@ -748,10 +751,14 @@ def _export_tree(dest: Path) -> None:
                     f"--prefix={dest.as_posix()}/"], cwd=HUB, check=True, capture_output=True, text=True)
     git_dir = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], cwd=HUB, check=True,
                              capture_output=True, text=True).stdout.strip()
-    (dest / ".git").write_text(f"gitdir: {git_dir}\n", encoding="utf-8")
+    (dest / ".git").write_text(f"gitdir: {git_dir}\n", encoding="utf-8", newline="\n")
     venv = (HUB / VENV).resolve()  # a linked worktree's own .venv is itself a link
     if venv.is_dir():
-        (dest / VENV).symlink_to(venv, target_is_directory=True)
+        if oscompat.WINDOWS:  # a symlink needs Developer Mode or an elevated shell; a junction needs neither
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(dest / VENV), str(venv)], check=True,
+                           capture_output=True, text=True)
+        else:
+            (dest / VENV).symlink_to(venv, target_is_directory=True)
 
 
 def tree_checks(staged) -> list[Result]:

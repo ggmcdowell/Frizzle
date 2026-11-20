@@ -22,6 +22,7 @@ import smoke  # noqa: E402
 REAL_RUN = smoke.subprocess.run
 REAL_HUB_TESTS = smoke.hub_tests
 REAL_SCANNER_MISSING = smoke.scanner_missing
+REAL_TRASH = smoke.run_tmp.trash
 
 
 class SmokeTests(unittest.TestCase):
@@ -170,6 +171,21 @@ class SmokeTests(unittest.TestCase):
             reds = REAL_HUB_TESTS(hub, stats=stats)
         self.assertEqual(1, len(reds))
         self.assertEqual({"files": 2, "ran": 4, "skipped": 1}, stats)
+
+    def test_a_windows_gate_command_with_no_git_sh_is_a_config_error_and_runs_nothing(self):
+        self.cfg["product"]["gate_command"] = "sh tools/gate.sh ."
+        with patch.object(smoke.harness_config.oscompat, "WINDOWS", True), \
+             patch.object(smoke.harness_config.oscompat, "git_shell", side_effect=OSError("no Git for Windows sh.exe")):
+            self.assertEqual(2, self.run_main())
+        self.assertIn("cannot start: no Git for Windows sh.exe", self.out.getvalue())
+        self.assertEqual(([], 0), (self.calls, self.hub_runs))
+
+    def test_a_windows_gate_command_runs_through_git_for_windows_sh(self):
+        self.cfg["product"]["gate_command"] = "sh tools/gate.sh ."
+        with patch.object(smoke.harness_config.oscompat, "WINDOWS", True), \
+             patch.object(smoke.harness_config.oscompat, "git_shell", return_value="C:/Git/usr/bin/sh.exe"):
+            self.assertEqual(0, self.run_main())
+        self.assertEqual(["C:/Git/usr/bin/sh.exe", "tools/gate.sh", "."], self.calls[0]["argv"])
 
     # Defect: with no gitleaks the secret-scan tests skipped, and the smoke stayed green.
     def test_a_missing_gitleaks_is_red_when_the_secret_scan_tests_would_run(self):
@@ -455,6 +471,14 @@ class RunTmpTests(unittest.TestCase):
         self.setUp_smoke()
         self.base = smoke.run_tmp.base(self.cfg)
         self.assertEqual(self.tmp / "temp", self.base.parent)
+
+    def test_windows_trash_sends_the_folder_to_the_recycle_bin_and_names_a_refusal(self):
+        with patch.object(smoke.run_tmp.oscompat, "WINDOWS", True), \
+             patch.object(smoke.run_tmp.oscompat, "recycle") as recycle:
+            self.assertIsNone(REAL_TRASH(self.tmp))
+            recycle.assert_called_once_with(self.tmp)
+            recycle.side_effect = OSError("Recycle Bin refused x (code 5)")
+            self.assertIn("Recycle Bin refused", REAL_TRASH(self.tmp))
 
     def test_the_hub_tests_and_the_product_step_get_one_run_folder_that_is_trashed_after_green_and_red(self):
         for reds, code in (([], 0), (["smoke: HUB RED Drawer/test_x.py: exit 1 (x)"], 1)):

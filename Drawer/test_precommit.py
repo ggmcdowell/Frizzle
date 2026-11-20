@@ -58,7 +58,7 @@ class Hook(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name, "hub")
         (self.repo / "Drawer" / "git-hooks").mkdir(parents=True)
-        for rel in ("harness.toml", ".gitleaks.toml", "Drawer/harness_config.py", "Drawer/name-check.py", "Drawer/rules_check.py", "Drawer/rules_audit.py",
+        for rel in ("harness.toml", ".gitleaks.toml", "Drawer/harness_config.py", "Drawer/oscompat.py", "Drawer/name-check.py", "Drawer/rules_check.py", "Drawer/rules_audit.py",
                     "Drawer/git-hooks/pre-commit", "Drawer/git-hooks/bound-gate.sh"):
             shutil.copy2(HUB / rel, self.repo / rel)
         marker = subprocess.run([sys.executable, "-B", str(HUB / "Drawer/harness_config.py"),

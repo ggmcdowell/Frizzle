@@ -49,6 +49,8 @@ REQUIRED_ENV = {
     "CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT": "1",
     # Subagents and Workflow legs run at medium whatever the lead runs at (CLI 2.1.316).
     "CLAUDE_CODE_SUBAGENT_EFFORT": "medium",
+    # Every hub Python runs in UTF-8 mode: a Windows pipe defaults to the ANSI code page.
+    "PYTHONUTF8": "1",
 }
 
 
@@ -359,7 +361,9 @@ def local_text(manifest, cfg, hub=HUB):
     """The box-local .claude/settings.local.json: the local allow list plus this box's hub interpreter, the
     add-dirs and the local hooks (the lean leg boot), and the editor MCP server when [product] names one."""
     allow = list(manifest["local"]["permissions"]["allow"])
-    python = f"Bash({harness_config.main_checkout(hub)}/.venv/bin/python *)"
+    # The rule matches the command text Git Bash runs, so it names the .venv/bin/python spelling (a shim on Windows)
+    # and a forward-slash path, whatever the box.
+    python = f"Bash({harness_config.main_checkout(hub).as_posix()}/.venv/bin/python *)"
     if python not in allow:
         allow.append(python)
     hooks = hooks_for(manifest["local"])
@@ -406,7 +410,7 @@ def mcp_json_text(manifest, cfg):
     python = cfg["derived"]["python"] if Path(cfg["derived"]["python"]).is_file() else sys.executable
     registrations = {
         server: ({"type": "http", "url": cfg["product"]["mcp_url"]} if server == editor else
-                 {"command": python, "args": runtime_args(server, cfg)})
+                 {"command": python, "args": runtime_args(server, cfg), "env": {"PYTHONUTF8": "1"}})
         for server in manifest["all_servers"]
     }
     return json.dumps({"mcpServers": registrations}, indent=2) + "\n"

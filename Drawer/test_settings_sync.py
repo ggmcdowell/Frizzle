@@ -147,6 +147,24 @@ class SettingsSyncTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "^project common must set CLAUDE_CODE_SUBAGENT_EFFORT=medium$"):
             SETTINGS.validate_manifest(rendered)
 
+    # Every hub Python runs in UTF-8 mode (a Windows pipe defaults to the ANSI code page): the project env, the
+    # MCP server's env and the manifest check all carry it. Injection: drop the manifest env key or the .mcp.json env.
+    def test_every_hub_python_runs_in_utf8_mode(self):
+        rendered = manifest()
+        self.assertEqual("1", json.loads(SETTINGS.body_for(rendered))["env"]["PYTHONUTF8"])
+        servers = json.loads(SETTINGS.mcp_json_text(rendered, CFG))["mcpServers"]
+        self.assertEqual({"PYTHONUTF8": "1"}, servers[harness_config.server_name(CFG)]["env"])
+        rendered["common"]["env"].pop("PYTHONUTF8")
+        with self.assertRaisesRegex(ValueError, "^project common must set PYTHONUTF8=1$"):
+            SETTINGS.validate_manifest(rendered)
+
+    def test_the_local_interpreter_rule_names_a_forward_slash_path(self):
+        # A Windows checkout path (C:\\hub) must reach Git Bash's command text as C:/hub.
+        from pathlib import PureWindowsPath
+        with patch.object(harness_config, "main_checkout", return_value=PureWindowsPath("C:\\hub")):
+            allow = json.loads(SETTINGS.local_text(manifest(), CFG))["permissions"]["allow"]
+        self.assertIn("Bash(C:/hub/.venv/bin/python *)", allow)
+
     # A leg that names no model must not land on opus (operator ruling): the subagent model is sonnet.
     # Injection: set CLAUDE_CODE_SUBAGENT_MODEL back to opus in the manifest.
     def test_a_leg_with_no_model_runs_on_sonnet_and_the_session_pin_stays_opus(self):

@@ -78,6 +78,25 @@ class FlightLauncherTest(unittest.TestCase):
         self.set_up(venv=False)
         self.assertEqual(["/setup", "unset", str(self.hub), "unset"], self.launch()[1])
 
+    def test_a_windows_environment_counts_as_set_up(self):
+        # uv puts the interpreter at .venv/Scripts/python.exe on Windows; Git has no executable bit there.
+        self.stub_claude()
+        self.set_up(venv=False)
+        python = self.hub / ".venv/Scripts/python.exe"
+        python.parent.mkdir(parents=True)
+        python.write_text("MZ\n")
+        self.assertEqual(["", "1", str(self.hub), "1"], self.launch()[1])
+
+    def test_flight_cmd_starts_flight_command_in_git_for_windows_bash(self):
+        cmd = (HUB / "Flight.cmd").read_bytes()
+        self.assertNotIn(b"\n", cmd.replace(b"\r\n", b""), "cmd.exe reads CRLF lines")
+        text = cmd.decode()
+        for part in ("%ProgramFiles%\\Git\\bin\\bash.exe", "where git", "..\\bin\\bash.exe", "Flight.command %*"):
+            self.assertIn(part, text)
+        eol = subprocess.run(["git", "check-attr", "eol", "--", "Flight.cmd"], cwd=HUB, capture_output=True, text=True,
+                             check=True).stdout
+        self.assertIn("eol: crlf", eol)
+
     def test_a_hub_that_setup_has_not_bound_starts_setup(self):
         self.stub_claude()
         self.set_up(bound=False)

@@ -12,6 +12,17 @@ until you opt in.
 | `template/` | a minimal `project.godot`, a passing `tests/smoke_test.gd` and the `.gitignore` lines |
 | `harness.pack.toml` | the `[product]` lines for a Godot game |
 
+## Windows
+
+The pack runs under Git for Windows (the Bash tool). Four things differ:
+
+- `GODOT` must name the console build, `Godot_v<version>_win64_console.exe` (`winget install GodotEngine.GodotEngine`, then point
+  `GODOT` at that file). The GUI build prints nothing to stdout, so the gate never sees `SMOKE PASS`.
+- `sh tools/gate.sh .` runs through Git for Windows' own `sh` (the hub finds it beside `git.exe`; no PATH change needed).
+- `product-init.py` ships a `.gitattributes` (`* text=auto eol=lf`) with the pack and commits the scripts executable, so a
+  Windows checkout keeps LF in `tools/gate.sh` and `.githooks/*`. Write paths in `[product] gate_command` with forward slashes.
+- Run the hub's own commands as `.venv/bin/python` in Git Bash (a shim there runs `.venv/Scripts/python.exe`).
+
 ## Opt in
 
 One command, from the hub root, after setup:
@@ -23,11 +34,11 @@ One command, from the hub root, after setup:
 `--origin <url>` names your own origin in place of `--local-origin` (a bare repo beside the folder). The command:
 
 1. finds Godot (`GODOT`, then `godot` on PATH, then /Applications/Godot.app) and prints its version. With none it
-   prints `brew install --cask godot` and exits 75 (BLOCKED) before it changes anything. It installs nothing;
+   prints `brew install --cask godot` (Windows: see above) and exits 75 (BLOCKED) before it changes anything. It installs nothing;
    run it again after you install.
 2. makes the folder and its Git repo on `main` with the origin, copies the pack into it (`tools/gate.sh`,
    `.githooks/pre-commit`, `.githooks/pre-push`, `GODOT-CONVENTIONS.md`, `project.godot`, `tests/smoke_test.gd`,
-   `.gitignore` lines), commits and pushes `main`. A file already there is kept.
+   `.gitattributes`, `.gitignore` lines), commits and pushes `main`. A file already there is kept.
 3. writes the `[product]` lines of `harness.pack.toml` into the main hub checkout's `harness.local.toml`.
 4. binds the product hooks (`core.hooksPath`) and renders the box settings.
 5. runs the first gate and prints one JSON line: `state` is `ready`, `red`, `blocked` or `failed`.

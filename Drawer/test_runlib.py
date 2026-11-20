@@ -225,5 +225,15 @@ class OwnProcessesTests(unittest.TestCase):
         run.assert_not_called()
 
 
+
+class LongJobRunnerPatternTests(unittest.TestCase):
+    def test_the_runner_is_found_after_a_slash_a_space_or_a_backslash(self):
+        for command in ("python -B /h/Drawer/long-job.py _run aaaa1111-x1", "python -B Drawer/long-job.py _run x",
+                        r"C:\hub\.venv\Scripts\python.exe -B C:\hub\Drawer\long-job.py _run aaaa1111-x1"):
+            with self.subTest(command=command):
+                self.assertTrue(runlib.LONG_JOB_RE.search(command))
+        self.assertFalse(runlib.LONG_JOB_RE.search("python -B Drawer/long-job.py wait --name x"))
+
+
 if __name__ == "__main__":
     unittest.main()

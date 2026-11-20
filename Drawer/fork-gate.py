@@ -204,15 +204,15 @@ def workflow_source(inp):
     """(source or None, saved): the Workflow call's script; saved is True for a hub template called by name."""
     try:
         if inp.get("scriptPath"):
-            with open(str(inp["scriptPath"]), encoding="utf-8") as f:
+            with open(str(inp["scriptPath"]), encoding="utf-8-sig") as f:
                 return f.read(), False
         if inp.get("script"):
             return str(inp["script"]), False
         name = str(inp.get("name") or "")
         if name and not re.search(r"[\\/]|\.\.", name):
-            with open(os.path.join(WORKFLOWS, name + ".js"), encoding="utf-8") as f:
+            with open(os.path.join(WORKFLOWS, name + ".js"), encoding="utf-8-sig") as f:
                 return f.read(), True
-    except OSError:
+    except (OSError, ValueError):  # unreadable or not UTF-8: the gate passes it
         pass
     return None, False
 

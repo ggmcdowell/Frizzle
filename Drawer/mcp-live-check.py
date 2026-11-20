@@ -21,7 +21,6 @@ from pathlib import Path
 import queue
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import threading
@@ -32,6 +31,7 @@ DRAWER = HUB / "Drawer"
 if str(DRAWER) not in sys.path:
     sys.path.insert(0, str(DRAWER))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 
 CLIENTS = ("claude",)
 TIMEOUT = 45
@@ -147,7 +147,7 @@ def diff(label: str, want: dict[str, list[str]], observed: dict[str, tuple[str, 
 def _start(argv: list[str], cwd: Path) -> tuple[subprocess.Popen, queue.Queue, list[bytes]]:
     env = {key: value for key, value in os.environ.items() if key not in PARENT_SESSION_VARS}
     process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, start_new_session=True)
+                               stderr=subprocess.PIPE, **oscompat.popen_group())
     lines: queue.Queue = queue.Queue()
     errors: list[bytes] = []
 
@@ -164,8 +164,8 @@ def _start(argv: list[str], cwd: Path) -> tuple[subprocess.Popen, queue.Queue, l
 def _kill(process: subprocess.Popen) -> None:
     """Kill only the recorded process tree; the probe spawned its MCP servers."""
     try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
+        oscompat.kill_tree(process.pid)
+    except OSError:  # ProcessLookupError: it ended already; a cleanup never replaces the probe's result
         pass
     try:
         process.wait(timeout=10)
@@ -212,8 +212,11 @@ def _cli(name: str) -> str | None:
     found = shutil.which(name)
     if found:
         return found
-    candidates = (Path.home() / ".local" / "bin" / name, Path("/opt/homebrew/bin") / name,
-                  Path("/usr/local/bin") / name)
+    if oscompat.WINDOWS:  # the native install: ~/.local/bin/claude.exe
+        candidates = (Path.home() / ".local" / "bin" / f"{name}.exe",)
+    else:
+        candidates = (Path.home() / ".local" / "bin" / name, Path("/opt/homebrew/bin") / name,
+                      Path("/usr/local/bin") / name)
     return next((str(c) for c in candidates if os.access(c, os.X_OK)), None)
 
 

@@ -21,6 +21,8 @@ import re
 import subprocess
 import sys
 
+import oscompat
+
 PROG = ".venv/bin/python -B Drawer/task_delivery.py"
 SHA = re.compile(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")
 
@@ -46,6 +48,8 @@ def must(repo, *args, why):
 
 
 def check_path(p):
+    if oscompat.WINDOWS:
+        p = p.replace("\\", "/")  # git names paths with /; a Windows tool types \
     if (not p or any(c in p for c in "\x00\r\n") or p.startswith(("/", "-")) or "\\" in p
             or any(part in (".", "..", "") for part in p.split("/"))):
         raise DeliveryError(f"name an exact repo-relative file path: {p!r}")

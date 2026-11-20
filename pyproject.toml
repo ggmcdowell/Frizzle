@@ -7,6 +7,7 @@ dependencies = [
   # Stay on the 1.x line: mcp 2.0 moved mcp.server.fastmcp.
   "mcp>=1.27,<2",
   "anyio",
+  # sqlite-vec ships wheels for macOS, Linux and win_amd64 only: Windows on ARM64 is unsupported.
   "sqlite-vec==0.1.9",
   "openai>=3.29.0",
 ]

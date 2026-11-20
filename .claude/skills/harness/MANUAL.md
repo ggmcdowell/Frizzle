@@ -17,7 +17,7 @@
 - --state-root and --config-root set the two roots (default `~/.local/share/<slug>-hub` and `~/.config/<slug>-hub`).
   [mem] db and export_dir sit under the state root; env_file and the name deny list under the config root.
 - By default the stamp writes only under --dest: the stamp prints one `skip <path>` line per private file. With
-  `--copy-secrets` the template's name deny list and mem env_file go to the new paths at mode 600. They are never printed.
+  `--copy-secrets` the template's name deny list and mem env_file go to the new paths at mode 600 (Mac and Linux; on Windows the profile ACL protects them). They are never printed.
 - Refused, with no write: a bad slug, the template slug, a dest inside the template, a used dest, a used
   state_root or config_root.
 - Next, in the stamp: the setup skill, steps 1 to 7. The stamp gets its own memory DB.

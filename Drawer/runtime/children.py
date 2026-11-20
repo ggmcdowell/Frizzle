@@ -19,7 +19,6 @@ import os
 from pathlib import Path
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -29,6 +28,7 @@ DRAWER = Path(__file__).resolve().parents[1]
 if str(DRAWER) not in sys.path:
     sys.path.insert(0, str(DRAWER))
 import gatelib  # noqa: E402
+import oscompat  # noqa: E402
 from runtime import filelock, profile  # noqa: E402
 
 RECORD_NAME = "smoke-children.json"
@@ -92,12 +92,15 @@ def _pid_only(pid: int) -> str | None:
 def process_identity(pid: int) -> str | None:
     """A PID-reuse-resistant identity for one process, or None when the OS hides it.
 
-    "proc-start:<n>" on Darwin and Linux, "pid-only:<n>" elsewhere. Darwin reads ps lstart
+    "proc-start:<n>" on Darwin, Linux and Windows (creation time), "pid-only:<n>" elsewhere. Darwin reads ps lstart
     at second precision, so a PID reused inside the same second is the accepted residual risk.
     """
     pid = int(pid)
     if pid <= 0:
         return None
+    if oscompat.WINDOWS:
+        started = oscompat.process_started(pid)
+        return "proc-start:%d" % started if started is not None else _pid_only(pid)
     if sys.platform == "darwin":
         return _darwin_started(pid) or _pid_only(pid)
     try:
@@ -143,7 +146,7 @@ def spawn(hub: str | Path, name: str, argv: Sequence[str], cwd: str | Path,
           env: Mapping[str, str], temp_root: str | os.PathLike[str]) -> subprocess.Popen:
     """Start one smoke child in its own group and record it before returning.
 
-    The child gets its own session so a Ctrl-C in the smoke run does not race the shutdown
+    The child heads its own group (oscompat.popen_group) so a Ctrl-C in the smoke run does not race the shutdown
     below. Its stdin is closed and its output goes to one log in its scratch root: a child
     holding this process's pipes open would hang the run, and a check that times out still has
     the child's own words.
@@ -157,7 +160,7 @@ def spawn(hub: str | Path, name: str, argv: Sequence[str], cwd: str | Path,
     with log_path(root, name).open("ab") as stream:
         process = subprocess.Popen(
             [str(item) for item in argv], cwd=str(cwd), env=dict(env),
-            stdin=subprocess.DEVNULL, stdout=stream, stderr=stream, start_new_session=True)
+            stdin=subprocess.DEVNULL, stdout=stream, stderr=stream, **oscompat.popen_group())
     entry = {
         "name": str(name),
         "pid": process.pid,
@@ -192,14 +195,26 @@ def _remove_temp(temp_root: str | os.PathLike[str] | None) -> str:
         time.sleep(0.1)
 
 
+def _signal_owned(process: subprocess.Popen, force: bool) -> None:
+    """Stop an owned child. Windows stops its whole tree: terminate and kill reach only the direct child,
+    and a launcher stub's real worker would keep the scratch log open."""
+    if oscompat.WINDOWS:
+        try:
+            oscompat.kill_tree(process.pid)
+            return
+        except OSError:
+            pass
+    process.kill() if force else process.terminate()
+
+
 def _stop_owned(entry: Mapping, process: subprocess.Popen) -> str:
     name = entry.get("name") or "child"
     if process.poll() is None:
-        process.terminate()
+        _signal_owned(process, force=False)
         try:
             process.wait(timeout=STOP_SECONDS)
         except subprocess.TimeoutExpired:
-            process.kill()
+            _signal_owned(process, force=True)
             try:
                 process.wait(timeout=STOP_SECONDS)
             except subprocess.TimeoutExpired:
@@ -242,6 +257,8 @@ def _reap(pid: int) -> None:
     A terminated child of this process keeps its PID and start time until it is waited for,
     so the identity would read "same" forever and a SIGKILL on its empty group fails.
     """
+    if oscompat.WINDOWS:  # no zombies: a dead process is gone at once
+        return
     try:
         os.waitpid(pid, os.WNOHANG)
     except (ChildProcessError, OSError):
@@ -254,8 +271,8 @@ def _terminate_verified(pid: int, identity: str) -> str:
     if state != "same":
         return state
     try:
-        # The child started its own session, so its process group id equals its pid.
-        os.killpg(pid, signal.SIGTERM)
+        # The child heads its own group (oscompat.popen_group); Windows stops the tree at once.
+        oscompat.term_tree(pid)
     except OSError:
         return UNCERTAIN
     deadline = time.monotonic() + STOP_SECONDS
@@ -271,7 +288,7 @@ def _terminate_verified(pid: int, identity: str) -> str:
     if state != "same":
         return state
     try:
-        os.killpg(pid, signal.SIGKILL)
+        oscompat.kill_tree(pid)
     except OSError:
         return UNCERTAIN
     return TERMINATED

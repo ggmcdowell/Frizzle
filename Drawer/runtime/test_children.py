@@ -8,6 +8,7 @@ import sys
 import tempfile
 import types
 import unittest
+import unittest.mock
 from unittest.mock import patch
 
 DRAWER = Path(__file__).resolve().parents[1]
@@ -226,21 +227,25 @@ class PosixCompareTests(unittest.TestCase):
 
 
 class PosixTerminateTests(unittest.TestCase):
-    """The POSIX route, driven on every seat: children.os and children.signal are patched."""
+    """The POSIX route, driven on every seat: children.os and the oscompat group signals are patched."""
 
     def route(self, identity, killpg):
         """The POSIX branch of _terminate_verified over a fake OS, with the signals it sent."""
         sent = []
 
-        def send(pid, number):
-            sent.append((pid, number))
-            killpg()
+        def sender(number):
+            def send(pid):
+                sent.append((pid, number))
+                killpg()
+            return send
 
         fake_os = types.SimpleNamespace(
-            name="posix", kill=self.gone, killpg=send,
+            name="posix", kill=self.gone,
             waitpid=lambda pid, flags: (0, 0), WNOHANG=1)
         with patch.object(children, "os", fake_os), \
-             patch.object(children, "signal", types.SimpleNamespace(SIGTERM=15, SIGKILL=9)), \
+             patch.object(children.oscompat, "WINDOWS", False), \
+             patch.object(children.oscompat, "term_tree", sender(15)), \
+             patch.object(children.oscompat, "kill_tree", sender(9)), \
              patch.object(children, "process_identity", identity):
             return children._terminate_verified(4242, "proc-start:1"), sent
 
@@ -294,6 +299,44 @@ class PosixTerminateTests(unittest.TestCase):
     @staticmethod
     def refuse():
         raise PermissionError(1, "not your process group")
+
+
+class WindowsRouteTests(unittest.TestCase):
+    """The Windows branches, driven on every seat with oscompat.WINDOWS patched."""
+
+    def test_identity_is_the_creation_stamp_and_a_hidden_one_falls_back_to_pid_only(self):
+        with patch.object(children.oscompat, "WINDOWS", True):
+            with patch.object(children.oscompat, "process_started", return_value=1234567):
+                self.assertEqual("proc-start:1234567", children.process_identity(4242))
+            with patch.object(children.oscompat, "process_started", return_value=None), \
+                 patch.object(children.gatelib, "pid_state", return_value="live"):
+                self.assertEqual("pid-only:4242", children.process_identity(4242))
+
+    def test_reap_does_nothing_on_windows(self):
+        with patch.object(children.oscompat, "WINDOWS", True), \
+             patch.object(children.os, "waitpid", side_effect=AssertionError("waitpid on Windows"), create=True):
+            children._reap(4242)
+
+    def test_terminate_stops_the_tree_and_reports_terminated_once_the_stamp_changes(self):
+        stopped = []
+        reads = iter(["proc-start:1", "proc-start:1", "proc-start:2"])
+        with patch.object(children.oscompat, "WINDOWS", True), \
+             patch.object(children.oscompat, "term_tree", side_effect=stopped.append), \
+             patch.object(children, "process_identity", side_effect=lambda pid: next(reads)):
+            self.assertEqual("terminated", children._terminate_verified(4242, "proc-start:1"))
+        self.assertEqual([4242], stopped)
+
+    def test_stop_owned_kills_the_whole_tree_on_windows_and_falls_back_to_the_child(self):
+        process = unittest.mock.MagicMock(pid=4242)
+        with patch.object(children.oscompat, "WINDOWS", True), \
+             patch.object(children.oscompat, "kill_tree") as tree:
+            children._signal_owned(process, force=False)
+        tree.assert_called_once_with(4242)
+        process.terminate.assert_not_called()
+        with patch.object(children.oscompat, "WINDOWS", True), \
+             patch.object(children.oscompat, "kill_tree", side_effect=OSError("taskkill")):
+            children._signal_owned(process, force=True)
+        process.kill.assert_called_once_with()
 
 
 class ReclaimTests(ChildrenFixture):

@@ -94,6 +94,21 @@ class ProductWorktreeTests(unittest.TestCase):
     def add(self, task8, session=None):
         return gwt.add_task(self.cfg, self.store, task8, session)
 
+    def test_add_turns_on_long_paths_and_reports_a_checkout_that_git_refuses(self):
+        task8 = self.task(LIVE)
+        real = gwt.git
+        seen = []
+
+        def failing(repo, *args, **kw):
+            if "worktree" in args and "add" in args:
+                seen.append(args)
+                return subprocess.CompletedProcess(args, 128, "", "error: unable to create file: Filename too long\n")
+            return real(repo, *args, **kw)
+        with unittest.mock.patch.object(gwt, "git", failing):
+            with self.assertRaisesRegex(gwt.Refused, "not added: error: unable to create file: Filename too long"):
+                self.add(task8)
+        self.assertEqual(("-c", "core.longpaths=true"), seen[0][:2])
+
     def test_a_second_add_returns_the_same_tree_and_lock(self):
         task8 = self.task(LIVE)
         first = self.add(task8)

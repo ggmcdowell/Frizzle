@@ -261,6 +261,23 @@ class SeatDoctorTests(SeatFixture):
             (item.ok, item.detail),
         )
 
+    def test_a_differently_spelled_hub_path_matches_on_windows_only(self):
+        # Windows: C:/x and C:\\x are one folder; here a dotted spelling stands in for the second spelling.
+        spelled = str(self.hub / "sub" / ".." )
+        carried, applied = {HUB_KEY: spelled}, {HUB_KEY: str(self.hub)}
+        with unittest.mock.patch.object(DOCTOR.oscompat, "WINDOWS", True):
+            self.assertTrue(DOCTOR.seat_source_item(carried, applied).ok)
+        with unittest.mock.patch.object(DOCTOR.oscompat, "WINDOWS", False):
+            self.assertFalse(DOCTOR.seat_source_item(carried, applied).ok)
+
+    def test_run_command_resolves_the_program_through_pathext_on_windows(self):
+        done = unittest.mock.Mock(returncode=0, stdout="v", stderr="")
+        with unittest.mock.patch.object(DOCTOR.oscompat, "WINDOWS", True), \
+                unittest.mock.patch.object(DOCTOR.shutil, "which", return_value="C:/npm/claude.cmd"), \
+                unittest.mock.patch.object(DOCTOR.subprocess, "run", return_value=done) as run:
+            self.assertEqual((0, "v"), DOCTOR.run_command(["claude", "--version"]))
+        self.assertEqual(["C:/npm/claude.cmd", "--version"], run.call_args.args[0])
+
     def test_a_process_seat_equal_to_the_profile_passes_and_says_so(self):
         carried = {name: self.env.get(name, "") for name in SEAT_KEY_NAMES}
         item = DOCTOR.seat_source_item(carried, self.env)

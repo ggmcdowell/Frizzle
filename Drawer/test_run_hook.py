@@ -20,11 +20,10 @@ PROBE ="import json, sys\nprint(json.dumps({'exe': sys.executable, 'argv': sys.a
 # rewritten banner or a lost repair command through.
 NO_PYTHON_NOTICE = (
     "HUB SETUP REQUIRED (no Python 3.12): this checkout is not set up on this machine. "
-    "Read .claude/skills/setup/SKILL.md and follow it. Do nothing else.")
+    "Read .claude/skills/setup/SKILL.md and follow it (brew on a Mac, winget on Windows). Do nothing else.")
 NO_PYTHON_REASON = (
-    "HUB SETUP REQUIRED (no Python 3.12): fail-closed denies this call. Only these pass, alone, "
-    "in this checkout: uv sync, brew install uv, brew install gitleaks. "
-    "Read .claude/skills/setup/SKILL.md.")
+    "HUB SETUP REQUIRED (no Python 3.12): fail-closed denies this call. Only uv sync, or brew or "
+    "winget install of uv or gitleaks, pass alone. Read .claude/skills/setup/SKILL.md.")
 WRAPPER_BROKEN_WARNING = (
     "HUB HOOK WRAPPER BROKEN: Drawer/hooks/run-hook.sh stopped before its gate answered, so this "
     "call is ALLOWED UNCHECKED. Repair it now: git checkout -- Drawer/hooks/run-hook.sh in the hub, "
@@ -107,12 +106,14 @@ class WrapperFixture(unittest.TestCase):
             "#!/bin/sh\ncat >/dev/null\necho 'xcode-select: note: No developer tools were found' >&2\nexit 1\n",
             encoding="utf-8")
         (cls.stub_dir / "python3").chmod(0o755)
+        shutil.copy2(cls.stub_dir / "python3", cls.stub_dir / "python")  # the ladder tries python after python3
         # An old python3, like stock macOS 3.9: it answers -c pass, but its version probe fails.
         cls.old_dir = cls.home / "old python3"
         cls.old_dir.mkdir()
         (cls.old_dir / "python3").write_text(
             "#!/bin/sh\ncat >/dev/null\n[ \"$2\" = pass ] && exit 0\nexit 1\n", encoding="utf-8")
         (cls.old_dir / "python3").chmod(0o755)
+        shutil.copy2(cls.old_dir / "python3", cls.old_dir / "python")
         cls.tools = os.pathsep.join(["/usr/bin", "/bin"])
 
     @classmethod
@@ -144,6 +145,9 @@ DENIED = (
     {"tool_name": "Bash", "tool_input": {"command": "brew install wget"}},
     {"tool_name": "Bash", "tool_input": {"command": "brew install uv gitleaks"}},
     {"tool_name": "Bash", "tool_input": {"command": "brew install uv && git push"}},
+    {"tool_name": "Bash", "tool_input": {"command": "winget install --id astral-sh.uv"}},
+    {"tool_name": "Bash", "tool_input": {"command": "winget install --id Other.Tool -e"}},
+    {"tool_name": "Bash", "tool_input": {"command": "winget install --id Gitleaks.Gitleaks -e && git push"}},
     {"tool_name": "Write", "tool_input": {"file_path": "pyproject.toml", "content": "x"}},
     {"tool_name": "Edit", "tool_input": {"file_path": "a.md", "old_string": "uv sync"}},
     # Two command keys: a substring parser must not pick either one.
@@ -155,7 +159,8 @@ DENIED = (
     {"tool_name": "Bash", "decoy": {"COMMAND": "uv sync"}, "tool_input": {"command": "git push"}},
     {"tool_name": "Write", "decoy": {"TOOL_NAME": "Bash"}, "tool_input": {"command": "uv sync"}},
 )
-ALLOWED = ("uv sync", "uv sync --frozen", "brew install uv", "brew install gitleaks")
+ALLOWED = ("uv sync", "uv sync --frozen", "brew install uv", "brew install gitleaks",
+           "winget install --id astral-sh.uv -e", "winget install --id Gitleaks.Gitleaks -e")
 
 
 class NoPythonTests(WrapperFixture):
@@ -301,6 +306,40 @@ class InterpreterLadderTests(WrapperFixture):
         shim.write_text(f'#!/bin/sh\nexec "{Path(sys.executable).as_posix()}" "$@"\n', encoding="utf-8")
         shim.chmod(0o755)
         return folder
+
+    def test_sh_prefers_the_windows_interpreter_over_the_posix_one(self):
+        """uv puts the interpreter at .venv/Scripts/python.exe on Windows: -f finds it, with no x bit."""
+        scripts = self.venv / "Scripts"
+        scripts.mkdir()
+        self.addCleanup(shutil.rmtree, scripts)
+        (scripts / "python.exe").write_text("not a program\n", encoding="utf-8")
+        (scripts / "python.exe").chmod(0o644)
+        # The ladder picks Scripts/python.exe before bin/python: running it fails, which proves the pick.
+        result = self.sh("pass", str(self.probe), "--answer", stdin="{}")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("python.exe", result.stderr)
+
+    def test_sh_falls_back_to_a_python_when_there_is_no_python3(self):
+        moved = self.venv.with_name(".venv-off")
+        self.venv.rename(moved)
+        self.addCleanup(lambda: moved.rename(self.venv))
+        real = self.launcher("real-python", "python")
+        # A dead python3 comes first: the ladder passes it and reaches python.
+        dead = self.home / "dead python3 only"
+        dead.mkdir(exist_ok=True)
+        shutil.copy2(self.stub_dir / "python3", dead / "python3")
+        result = self.sh("boot", str(self.probe), "--part", "hub", stdin="{}",
+                         path=os.pathsep.join([str(dead), str(real), self.tools]))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual({"exe": sys.executable, "argv": ["--part", "hub"], "stdin": "{}"}, answered(result))
+
+    def test_sh_runs_every_hook_python_in_utf8_mode(self):
+        utf8 = self.hub / "Drawer" / "hooks" / "utf8.py"
+        utf8.write_text("import os, sys\nprint(os.environ.get('PYTHONUTF8'), sys.flags.utf8_mode)\n", encoding="utf-8")
+        for mode in ("pass", "boot", "gate"):
+            with self.subTest(mode=mode):
+                result = self.sh(mode, str(utf8), stdin="{}", extra_env={"PYTHONUTF8": ""})
+                self.assertEqual("1 1", result.stdout.strip(), result.stderr)
 
     def test_sh_falls_back_to_a_real_python3(self):
         moved = self.venv.with_name(".venv-off")

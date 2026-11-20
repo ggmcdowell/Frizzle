@@ -66,5 +66,23 @@ class WorktreeLocalTomlTest(unittest.TestCase):
         self.assertEqual("~/default", harness_config.load(self.tree)["project"]["state_root"])
 
 
+class GateArgvTest(unittest.TestCase):
+    def test_python_word_is_the_hub_interpreter_and_sh_stays_bare_on_posix(self):
+        with mock.patch.object(harness_config.oscompat, "WINDOWS", False):
+            self.assertEqual(["sh", "tools/gate.sh", ".", sys.executable],
+                             harness_config.gate_argv("sh tools/gate.sh . {python}"))
+
+    def test_windows_runs_a_leading_sh_or_bash_through_git_for_windows(self):
+        with mock.patch.object(harness_config.oscompat, "WINDOWS", True), \
+                mock.patch.object(harness_config.oscompat, "git_shell", side_effect=lambda n: f"C:/Git/usr/bin/{n}.exe"):
+            self.assertEqual(["C:/Git/usr/bin/sh.exe", "tools/gate.sh", "."], harness_config.gate_argv("sh tools/gate.sh ."))
+            self.assertEqual(["C:/Git/usr/bin/bash.exe", "x"], harness_config.gate_argv("bash x"))
+            self.assertEqual([sys.executable, "g.py"], harness_config.gate_argv("{python} g.py"))
+
+    def test_an_unparsable_command_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            harness_config.gate_argv("sh 'open")
+
+
 if __name__ == "__main__":
     unittest.main()

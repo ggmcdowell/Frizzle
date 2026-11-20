@@ -19,6 +19,7 @@ worktree only ADDS rules when a session reads a file there; the doc-gate refuses
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 HUB = HERE.parent
 sys.path.insert(0, str(HERE))
+import oscompat  # noqa: E402
 import rules_audit  # noqa: E402
 
 SENTINEL = "Rules sentinel:"
@@ -47,7 +49,8 @@ def candidates(folder: Path) -> list[Path]:
 
 def is_shadow_name(path: str) -> bool:
     """A file name that Claude Code reads as project instructions in place of AGENTS.md."""
-    return Path(path).name in SHADOW_NAMES
+    name = Path(path).name
+    return name.lower() in {n.lower() for n in SHADOW_NAMES} if oscompat.WINDOWS else name in SHADOW_NAMES  # NTFS ignores case
 
 
 def shadowing(path: str, hub: Path = HUB) -> bool:
@@ -107,7 +110,8 @@ def faults(hub: Path = HUB, products: list[Path] | None = None) -> list[str]:
 
 def cli_version() -> str:
     try:
-        return subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=30).stdout
+        return subprocess.run([shutil.which("claude") or "claude", "--version"], capture_output=True, text=True,
+                              timeout=30).stdout
     except (OSError, subprocess.SubprocessError):
         return ""
 

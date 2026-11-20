@@ -11,11 +11,12 @@ Usage: flight-watchdog.py events [--lock NAME] [--step SECONDS] [--once]
 """
 import argparse
 from datetime import datetime, timezone
-import fcntl
 import json
 import os
 from pathlib import Path
 import re
+import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -25,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gatelib  # noqa: E402
 import harness_config  # noqa: E402
 import incident  # noqa: E402
+import oscompat  # noqa: E402
 import runlib  # noqa: E402
 
 HOME = Path.home()
@@ -283,7 +285,7 @@ def write_whole(path, text):
     """Write text to path through a temp file and a rename, so a kill mid-write keeps the old file whole."""
     part = path.with_name(path.name + ".tmp")
     part.write_text(text, encoding="utf-8")
-    part.replace(path)
+    oscompat.replace(part, path)
 
 
 def new_rows(seen, key, path, learn):
@@ -335,24 +337,43 @@ def events_holder(lock):
         return None
 
 
-def orphan_watcher(pid, lock):
-    """True when pid is an orphan events watcher of this hub and lock: its parent is gone (ppid 1), a word of its
-    command line names this file, as an absolute path or relative to the process cwd (lsof; the Monitor arm runs
-    Drawer/flight-watchdog.py from the hub root), the next word is events, and its --lock X or --lock=X (the last
-    one; none: flight) is lock. Every doubt is False."""
+def orphan_facts(pid):
+    """(words of the command line, cwd) of pid when its parent is gone, else None. POSIX: ps and lsof, an orphan
+    has ppid 1. Windows: Win32_Process through PowerShell (no cwd to read: the Monitor arm runs from the hub
+    root), the parent pid no longer runs. Every doubt is None."""
     try:
+        if oscompat.WINDOWS:
+            script = (f"Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' | "
+                      "Select-Object ParentProcessId,CommandLine | ConvertTo-Json")
+            info = json.loads(subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                                             capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                             timeout=30).stdout)
+            command = info["CommandLine"]
+            if not command or gatelib.pid_state(info["ParentProcessId"]) != "gone":
+                return None
+            return [word.strip('"') for word in shlex.split(command, posix=False)], str(HUB)
         out = subprocess.run(["ps", "-ww", "-o", "ppid=", "-o", "command=", "-p", str(pid)], capture_output=True,
                              text=True, timeout=30).stdout.split(None, 1)
         if len(out) != 2 or out[0] != "1":
-            return False
+            return None
         cwd = next((line[1:] for line in subprocess.run(
-            ["/usr/sbin/lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], capture_output=True, text=True,
-            timeout=30).stdout.splitlines() if line.startswith("n")), "")
-    except (OSError, subprocess.SubprocessError):
+            [shutil.which("lsof") or "/usr/sbin/lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], capture_output=True,
+            text=True, timeout=30).stdout.splitlines() if line.startswith("n")), "")
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return None
+    return (out[1].split(), cwd) if cwd else None
+
+
+def orphan_watcher(pid, lock):
+    """True when pid is an orphan events watcher of this hub and lock: its parent is gone (orphan_facts), a word of
+    its command line names this file, as an absolute path or relative to the process cwd (the Monitor arm runs
+    Drawer/flight-watchdog.py from the hub root), the next word is events, and its --lock X or --lock=X (the last
+    one; none: flight) is lock. Every doubt is False."""
+    facts = orphan_facts(pid)
+    if facts is None:
         return False
-    if not cwd:
-        return False
-    me, words = Path(__file__).resolve(), out[1].split()
+    words, cwd = facts
+    me = Path(__file__).resolve()
 
     def names_me(word):
         try:
@@ -373,10 +394,14 @@ def orphan_watcher(pid, lock):
 
 
 def reap(pid, stream):
-    """End the orphan watcher pid (SIGTERM, then SIGKILL) and take the lock; True when the lock is ours."""
-    for sig in (signal.SIGTERM, signal.SIGKILL):
+    """End the orphan watcher pid (SIGTERM, then SIGKILL; Windows: its process tree at once) and take the lock;
+    True when the lock is ours."""
+    for sig in (None,) if oscompat.WINDOWS else (signal.SIGTERM, signal.SIGKILL):
         try:
-            os.kill(pid, sig)
+            if oscompat.WINDOWS:
+                oscompat.kill_tree(pid)
+            else:
+                os.kill(pid, sig)
         except ProcessLookupError:
             pass
         except OSError:
@@ -384,7 +409,7 @@ def reap(pid, stream):
         deadline = time.monotonic() + REAP_WAIT
         while time.monotonic() < deadline:
             try:
-                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                oscompat.lock(stream)
                 return True
             except OSError:
                 time.sleep(0.1)
@@ -422,9 +447,9 @@ def events(argv):
     if not re.fullmatch(r"[a-z0-9-]{1,40}", a.lock):
         p.error("--lock must be lower-case letters, digits and hyphens")
     STATE.mkdir(parents=True, exist_ok=True)
-    lock = open(STATE / f"events-{a.lock}.lock", "w")
+    lock = open(STATE / f"events-{a.lock}.lock", "a")  # append: a second run's open never truncates a held file
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        oscompat.lock(lock)
     except OSError:
         holder = events_holder(a.lock)
         if not (holder and orphan_watcher(holder, a.lock) and reap(holder, lock)):

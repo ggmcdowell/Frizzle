@@ -87,6 +87,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import socket
 import sqlite3
 import subprocess
@@ -99,6 +100,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 import pushretry  # noqa: E402
 
 KINDS = ("design", "decision", "taste", "lesson", "fact", "task")
@@ -112,7 +114,7 @@ TASK_FORM_RE = re.compile(r"^[^:\n]{1,120}:\s*\S.*?\bWhy:\s*\S.*?\bDone when:\s*
 BODY_CAP = {"task": 1800}
 OTHER_CAP = 600
 LINT = (("an ISO date", re.compile(r"\b\d{4}-\d{2}-\d{2}\b")),
-        ("a user-home or volume path", re.compile(r"(?<![\w~.])/(?:Users|home|Volumes)/\w|\b[A-Za-z]:\\(?:Users\\)?\w")),
+        ("a user-home or volume path", re.compile(r"(?<![\w~.])/(?:[a-z]/)?(?:Users|home|Volumes)/\w|\b[A-Za-z]:[\\/](?:Users[\\/])?\w")),
         ("a File:123 cite", re.compile(r"\b[\w./-]*\w\.[A-Za-z]\w{0,5}:\d+\b")))
 # An incident record whose text or tags name git history or a delete closes only with a lost-work check line.
 LOST_WORK_RISK = re.compile(
@@ -141,8 +143,10 @@ DIGEST_CHARS = 6000  # ~1,500 tokens
 SEED = HERE / "seed" / "starter.jsonl"  # the starter cards mem seed loads into an empty DB
 LIVE_WRITE_ENV = "MEM_LIVE_WRITE"  # =1: code outside the live hub may write and migrate the live DB
 # A hub test run: python -m unittest or -m pytest, a test_*.py script, or pytest itself.
-TEST_RUN_RE = re.compile(r"^\S*python[\d.]*\s+(?:-\S+\s+)*?(?:-m\s+(?:unittest|pytest)\b|\S*\btest_\w*\.py\b)"
-                         r"|^\S*\bpytest\b", re.I)
+# Windows spells the command "C:\...\python.exe" -m pytest: quoted, with .exe.
+TEST_RUN_RE = re.compile(r"^(?:\"[^\"]*python[\d.]*(?:\.exe)?\"|\S*python[\d.]*(?:\.exe)?)\s+(?:-\S+\s+)*?"
+                         r"(?:-m\s+(?:unittest|pytest)\b|\S*\btest_\w*\.py\b)"
+                         r"|^\"?\S*\bpytest\b", re.I)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cards(
@@ -255,16 +259,26 @@ class LiveReadOnly(MemError):
 
 
 _test_run: list[int | None] = []
+# Windows has no ps: one 'pid ppid command line' row per process, as ps prints them.
+WIN_PS = ("Get-CimInstance Win32_Process | ForEach-Object { '{0} {1} {2}' -f $_.ProcessId, $_.ParentProcessId, "
+          "$_.CommandLine }")
+
+
+def process_table() -> str:
+    """Every process as 'pid ppid command' rows ('' when the listing fails)."""
+    cmd = (["powershell", "-NoProfile", "-NonInteractive", "-Command", WIN_PS] if oscompat.WINDOWS
+           else ["ps", "-A", "-o", "pid=,ppid=,command="])
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                              timeout=30 if oscompat.WINDOWS else 10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
 
 
 def test_run() -> int | None:
     """The pid of the hub test run this process runs in (itself or an ancestor), else None."""
     if not _test_run:
-        try:
-            ps = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,command="], capture_output=True, text=True,
-                                timeout=10).stdout
-        except (OSError, subprocess.SubprocessError):
-            ps = ""
+        ps = process_table()
         procs = {}
         for row in ps.splitlines():
             pid, ppid, command = (row.split(None, 2) + ["", "", ""])[:3]
@@ -381,7 +395,7 @@ class Embedder:
     def _key_from(env_file: str | None) -> str | None:
         if not env_file or not (p := Path(harness_config.path(env_file))).is_file():
             return None
-        for line in p.read_text().splitlines():
+        for line in p.read_text(encoding="utf-8-sig").splitlines():
             if line.startswith("OPENAI_API_KEY="):
                 return line.split("=", 1)[1].strip().strip("'\"") or None
         return None
@@ -1023,10 +1037,10 @@ class Mem:
                 row["log"] = log
             rows.append(row)
         tmp = path.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:  # LF on Windows too: the export is a git repo
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n")
-        tmp.replace(path)
+        oscompat.replace(tmp, path)
         return len(rows)
 
     def import_jsonl(self, path: Path) -> int:
@@ -1094,7 +1108,7 @@ class Mem:
         if verdict != [("ok",)]:  # a corrupt copy never replaces a whole one
             part.unlink(missing_ok=True)
             raise sqlite3.DatabaseError(f"snapshot {part} failed integrity_check: {verdict[:3]}")
-        part.replace(dest)
+        oscompat.replace(part, dest)
         return dest
 
     def snapshot(self, folder: Path, keep: int) -> Path:
@@ -1234,16 +1248,21 @@ def snapshot_with_cards(folder: Path, beyond_starter: bool = False) -> Path | No
     return None
 
 
+def sh_arg(path) -> str:
+    """A path as a Git Bash word: C:/x/y, quoted when it holds a space. POSIX prints it as it is."""
+    return shlex.quote(Path(path).as_posix()) if oscompat.WINDOWS else str(path)
+
+
 def restore_hint(db: Path, export: Path, snap_dir: Path, corrupt: bool = False,
                  beyond_starter: bool = False) -> str | None:
     """The restore command for this hub when the export or a snapshot still holds cards (README, MANUAL: Restore),
     else None. A corrupt DB, or a snapshot copy over an existing file, moves the old file aside first.
     beyond_starter: the DB holds the starter cards, so only a card outside that set is worth restoring."""
-    aside = f"mv {db} {db}.bad; "
+    aside = f"mv {sh_arg(db)} {sh_arg(f'{db}.bad')}; "
     if holds_cards(export, beyond_starter):
-        return ("Restore: " + (aside if corrupt else "") + f".venv/bin/python -B Drawer/mem/mem.py import {export}")
+        return ("Restore: " + (aside if corrupt else "") + f".venv/bin/python -B Drawer/mem/mem.py import {sh_arg(export)}")
     if snap := snapshot_with_cards(snap_dir, beyond_starter):
-        return f"Restore: {aside if corrupt or Path(db).exists() else ''}cp {snap} {db}"
+        return f"Restore: {aside if corrupt or Path(db).exists() else ''}cp {sh_arg(snap)} {sh_arg(db)}"
     return None
 
 

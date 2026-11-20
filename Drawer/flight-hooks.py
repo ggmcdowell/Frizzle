@@ -57,6 +57,7 @@ DRAWER = Path(__file__).resolve().parent
 HUB = DRAWER.parent
 sys.path.insert(0, str(DRAWER))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 import runlib  # noqa: E402
 
 _CONFIG = harness_config.load(HUB)
@@ -213,21 +214,17 @@ def oneshot_pending():
 
 def watcher_alive():
     """True when a process holds the events lock (flight-watchdog.py events). The probe takes the lock for an
-    instant when it is free. A box with no flock never blocks: it counts as a watcher."""
-    try:
-        import fcntl
-    except ImportError:
-        return True
+    instant when it is free."""
     try:
         stream = open(EVENTS_LOCK, "a")
     except OSError:
         return False  # no flight-watchdog folder: no watcher ever ran
     with stream:
         try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            oscompat.lock(stream)
         except OSError:
             return True
-        fcntl.flock(stream, fcntl.LOCK_UN)
+        oscompat.unlock(stream)
         return False
 
 
@@ -282,7 +279,7 @@ def log(base, row, now):
     if len(rows) > LOG_KEEP:
         part = path.with_name(path.name + ".tmp")
         part.write_text("".join(rows[-LOG_KEEP:]), encoding="utf-8")
-        part.replace(path)
+        oscompat.replace(part, path)
 
 
 def tail(base):

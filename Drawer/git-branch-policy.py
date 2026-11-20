@@ -38,12 +38,10 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import fcntl
 import json
 import os
 from pathlib import Path
 import re
-import signal
 import shutil
 import subprocess
 import sys
@@ -56,6 +54,7 @@ if str(DRAWER_DIR) not in sys.path:
     sys.path.insert(0, str(DRAWER_DIR))
 import gatelib
 import harness_config
+import oscompat
 
 
 # The hub that holds this file: its state_root and steer check read harness.toml.
@@ -124,8 +123,7 @@ class _FreshnessLock:
         deadline = time.monotonic() + self.timeout
         while True:
             try:
-                self.handle.seek(0)
-                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                oscompat.lock(self.handle)
                 return self
             except OSError as exc:
                 if time.monotonic() >= deadline:
@@ -139,8 +137,7 @@ class _FreshnessLock:
     def __exit__(self, _kind, _value, _traceback):
         if self.handle is None:
             return
-        self.handle.seek(0)
-        fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        oscompat.unlock(self.handle)
         self.handle.close()
         self.handle = None
 
@@ -164,7 +161,7 @@ def _git(repo: Path, *arguments: str, input_text: str | None = None,
             stderr=subprocess.PIPE,
             text=True,
             env=env,
-            start_new_session=True,
+            **oscompat.popen_group(),
         )
         try:
             stdout, stderr = process.communicate(input=input_text, timeout=timeout)
@@ -183,7 +180,7 @@ def _terminate_process_tree(process: subprocess.Popen) -> bool:
     """Stop a timed Git command and every descendant before recovery begins."""
     quiesced = True
     try:
-        os.killpg(process.pid, signal.SIGKILL)
+        oscompat.kill_tree(process.pid)
     except ProcessLookupError:
         pass
     except OSError:
@@ -436,6 +433,8 @@ def install(repo: Path) -> dict[str, object]:
     _set_config(repo, scope, "core.hooksPath", HOOKS_PATH)
     _set_config(repo, scope, "remote.pushDefault", "origin")
     _set_config(repo, scope, "push.default", "upstream")
+    if oscompat.WINDOWS:  # a task worktree path under a deep hub folder passes 260 characters
+        _set_config(repo, scope, "core.longpaths", "true")
     _set_config(repo, scope, "hub.originUrl", _git(repo, "remote", "get-url", "origin").stdout.strip())
     _set_config(repo, scope, "hub.bound", "true")
     _set_branch_destination(repo, scope, current)
@@ -1211,6 +1210,16 @@ def _venv_link(path: Path) -> bool:
     return os.path.islink(link) or getattr(os.path, "isjunction", lambda _: False)(link)
 
 
+def _link_venv(target: Path, link: Path) -> None:
+    """Link the main checkout's interpreter folder into a task worktree: a symlink, on Windows a junction
+    (it needs no privilege; _unlink_venv drops it with rmdir)."""
+    if oscompat.WINDOWS:
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
 def _unlink_venv(path: Path) -> None:
     """Remove the interpreter link first, so no removal can reach the main checkout's interpreter."""
     link = path / VENV
@@ -1305,7 +1314,7 @@ def worktree_add(repo: Path, name: str) -> dict[str, object]:
     _git(repo, "worktree", "add", "--no-track", "-b", branch, str(path), "refs/remotes/origin/main")
     try:
         if (repo / VENV).is_dir():
-            (path / VENV).symlink_to(repo / VENV, target_is_directory=True)
+            _link_venv(repo / VENV, path / VENV)
         source = profile.default_profile_path(repo)
         if source.exists():
             seat = profile.load_profile(source)
@@ -1462,6 +1471,12 @@ def _trash(path: Path) -> None:
     """Move path to the trash (root AGENTS.md: trash, not rm). No trash command keeps it."""
     tool = shutil.which("trash") or next((t for t in ("/usr/bin/trash", "/opt/homebrew/bin/trash")
                                           if os.access(t, os.X_OK)), None)
+    if not tool and oscompat.WINDOWS:
+        try:
+            oscompat.recycle(path)
+        except OSError as exc:
+            raise PolicyError(f"trash failed: {exc}") from exc
+        return
     if not tool:
         raise PolicyError("no trash command on this box; it stays")
     ran = subprocess.run([tool, str(path)], capture_output=True, text=True, check=False, timeout=TRASH_TIMEOUT_SECONDS)
@@ -1478,7 +1493,7 @@ def own_cleanup(repo: Path, session: str = "") -> dict[str, object]:
     there (a product session/<uuid8> tree), and any folder with a .git in it or one level down (a scratch
     clone may hold unpushed work), is left, untouched. Product repo trees and branches are not read at
     all: the session-start sweep owns them. Past CLEANUP_BUDGET_SECONDS the rest is kept, inside the hook's 120 s.
-    A box with no trash command (Windows) keeps every temp folder, listed as leftover.
+    A box with no trash command (and no Recycle Bin) keeps every temp folder, listed as leftover.
     Then task_sweep: a done or dropped card's <task8>-* tree goes; one it holds is listed in left.
     """
     me = (session or os.environ.get("CLAUDE_CODE_SESSION_ID", "")).strip().lower()

@@ -286,5 +286,31 @@ class LaunchChangeTests(unittest.TestCase):
         self.git("update-index", "--cacheinfo", f"100644,{blob},{path}")
 
 
+class WindowsPortTests(unittest.TestCase):
+    def test_the_client_is_found_as_the_native_exe_when_path_misses_it(self):
+        with tempfile.TemporaryDirectory() as home:
+            exe = Path(home, ".local", "bin", "claude.exe")
+            exe.parent.mkdir(parents=True)
+            exe.write_text("", encoding="utf-8")
+            exe.chmod(0o755)  # os.access X_OK: any file counts on Windows
+            with mock.patch.object(GATE.oscompat, "WINDOWS", True), mock.patch.object(GATE.shutil, "which", return_value=None), \
+                    mock.patch.object(GATE.Path, "home", return_value=Path(home)):
+                self.assertEqual(str(exe), GATE._cli("claude"))
+
+    def test_kill_stops_the_tree_through_oscompat_and_ignores_a_process_already_gone(self):
+        process = mock.Mock(pid=4242)
+        with mock.patch.object(GATE.oscompat, "kill_tree", side_effect=ProcessLookupError(4242)) as kill:
+            GATE._kill(process)
+        kill.assert_called_once_with(4242)
+        process.wait.assert_called_once()
+
+    def test_the_client_starts_as_the_head_of_its_own_group(self):
+        with mock.patch.object(GATE.oscompat, "popen_group", return_value={"creationflags": 512}), \
+                mock.patch.object(GATE.subprocess, "Popen", side_effect=RuntimeError("stop")) as popen:
+            with self.assertRaises(RuntimeError):
+                GATE._start(["claude"], ROOT)
+        self.assertEqual(512, popen.call_args.kwargs["creationflags"])
+
+
 if __name__ == "__main__":
     unittest.main()

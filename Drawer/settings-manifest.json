@@ -6,7 +6,7 @@
     "{HUB} in a hook or statusLine command becomes $CLAUDE_PROJECT_DIR, the hub root, so the guards travel to any box or hub copy.",
     "{ENV_PREFIX} becomes harness.toml [project] env_prefix. The Flight hooks run behind a shell guard: <env_prefix>_FLIGHT set (a headless Flight run sets it) or a {HUB}/Flight/seats folder (a hand Flight seated by flight-hooks.py seat); Drawer/flight-hooks.py then exits 0 for a session whose payload session_id holds no seat.",
     "{MEM_SERVER} becomes the memory MCP server name and {MEM_TOOLS} its tool prefix, both from harness.toml [mem] server_name. {EDITOR_SERVER} becomes the editor MCP server name from harness.toml [product] mcp_server; with no name or no mcp_url it drops out of every server list.",
-    "Every hook runs through Drawer/hooks/run-hook.sh <boot|gate|pass> <script> [args]: it picks the hub .venv interpreter, then py, then a real python3, and with no Python at all a boot announces HUB SETUP REQUIRED, a gate denies all but the preparation command, a pass exits 0.",
+    "Every hook runs through Drawer/hooks/run-hook.sh <boot|gate|pass> <script> [args]: it picks the hub .venv interpreter (Scripts/python.exe on Windows), then a real python3 or python, and with no Python at all a boot announces HUB SETUP REQUIRED, a gate denies all but the preparation command, a pass exits 0.",
     "A PreToolUse matcher of {GATES} renders from the GATES table in Drawer/project-gate.py; the table is the one home for the gate registrations.",
     "root lists the capability classes of the one target, the hub root: every session seats there. A class's skills are model-invocable there; every other project skill is user-invocable only. Each harness.toml [project] task_skills entry must be visible there.",
     "Required Claude behavior lives in each project .claude/settings.json: the status line, effort, the STE-100 output style (.claude/output-styles/ste100.md), skill overrides and empty commit and PR attribution (clean human commits, no AI attribution lines). The lead model defaults to Opus at medium effort; the human changes it from there.",
@@ -64,7 +64,8 @@
       "CLAUDE_CODE_SEND_FEEDBACK": "0",
       "MCP_TIMEOUT": "60000",
       "CLAUDE_CODE_EXPERIMENTAL_CODE_MODE": "1",
-      "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0"
+      "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0",
+      "PYTHONUTF8": "1"
     }
   },
   "local": {

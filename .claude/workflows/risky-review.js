@@ -26,7 +26,7 @@ export const meta = {
 //   kind defaults to hub when a file is under Drawer/ or .claude/, or is AGENTS.md or harness.toml; else product.
 const a = typeof args === 'string' ? JSON.parse(args) : (args ?? {})
 const { repo, head, base, hash, diffPath } = a
-const files = a.files
+const files = Array.isArray(a.files) ? a.files.map((f) => (typeof f === 'string' ? f.replace(/\\/g, '/') : f)) : a.files  // a Windows path may carry backslashes
 const strings = (x) => Array.isArray(x) && x.length > 0 && x.every((s) => typeof s === 'string' && s)
 if (typeof repo !== 'string' || !repo || typeof diffPath !== 'string' || !diffPath ||
     !/^[0-9a-f]{40}$/.test(head || '') || !/^[0-9a-f]{64}$/.test(hash || '') || !strings(files)) {

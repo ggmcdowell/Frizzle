@@ -128,7 +128,7 @@ def run(a):
     dst = Path(a.dst).resolve()
     if dst == HUB or HUB in dst.parents:
         raise Fault("dst %s is inside the hub checkout %s; keep transcripts outside git" % (dst, HUB))
-    turns = parse(Path(a.src).read_text(encoding="utf-8"))
+    turns = parse(Path(a.src).read_text(encoding="utf-8-sig"))
     unlabeled = sum(1 for t in turns if t[1] is None)
     if unlabeled and not a.speaker:
         raise Fault("%d line(s) have no speaker label; give --speaker NAME" % unlabeled)

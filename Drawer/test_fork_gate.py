@@ -200,5 +200,18 @@ class Dispatch(unittest.TestCase):
         self.assertEqual("", done.stdout)
 
 
+class UnreadableScript(unittest.TestCase):
+    def test_a_script_that_is_not_utf8_passes_and_a_bom_is_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wide = os.path.join(tmp, "wide.js")
+            with open(wide, "wb") as f:
+                f.write("agent(p)".encode("utf-16"))  # a PowerShell > redirect
+            self.assertEqual((None, False), GATE.workflow_source({"scriptPath": wide}))
+            bom = os.path.join(tmp, "bom.js")
+            with open(bom, "wb") as f:
+                f.write(b"\xef\xbb\xbfagent(p)")
+            self.assertEqual(("agent(p)", False), GATE.workflow_source({"scriptPath": bom}))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from unittest.mock import patch
 
 # realpath: a checkout reached through a symlink (a probe worktree under /tmp on macOS) must give
@@ -440,6 +441,37 @@ class LinkedWorktrees(unittest.TestCase):
             self.assertEqual(("pass", ""), self.run_gate("Write", {"session_id": self.TASK_SID},
                                                          file_path=os.path.join(not_git, "project", "main.gd"),
                                                          content="x\n"))
+
+
+class WindowsPaths(unittest.TestCase):
+    """The Windows branches of doc-gate, run in-process on any box."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("doc_gate_windows_paths", os.path.join(HERE, "doc-gate.py"))
+        cls.gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.gate)
+
+    def test_a_worktree_on_another_drive_is_named_by_its_path_not_a_crash(self):
+        with unittest.mock.patch.object(self.gate.os.path, "relpath", side_effect=ValueError("other drive")):
+            self.assertEqual("D:/wt/x: Drawer/a.py", self.gate.where("D:\\wt\\x", "Drawer/a.py"))
+
+    def test_a_git_bash_drive_path_is_read_as_a_drive_path(self):
+        with unittest.mock.patch.object(self.gate.oscompat, "WINDOWS", True):
+            self.assertEqual("C:/work/x", self.gate.oscompat.native_path("/c/work/x"))
+            with unittest.mock.patch.object(self.gate.os.path, "isabs", lambda p: True), \
+                    unittest.mock.patch.object(self.gate.os.path, "abspath", lambda p: p):
+                self.assertEqual("C:/work/x", self.gate.absolute("/c/work/x"))
+
+    def test_a_tests_folder_is_found_in_any_case_on_windows(self):
+        with unittest.mock.patch.object(self.gate, "PRODUCT", "/p"), \
+                unittest.mock.patch.object(self.gate, "gate_running", lambda c: True), \
+                unittest.mock.patch.object(self.gate.oscompat, "WINDOWS", True):
+            self.assertIsNotNone(self.gate.judge_path("Tests/x.gd", root="/p"))
+        with unittest.mock.patch.object(self.gate, "PRODUCT", "/p"), \
+                unittest.mock.patch.object(self.gate, "gate_running", lambda c: True), \
+                unittest.mock.patch.object(self.gate.oscompat, "WINDOWS", False):
+            self.assertIsNone(self.gate.judge_path("Tests/x.gd", root="/p"))
 
 
 if __name__ == "__main__":

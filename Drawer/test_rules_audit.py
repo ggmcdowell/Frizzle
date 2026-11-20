@@ -102,6 +102,11 @@ class RulesAuditTest(unittest.TestCase):
         self.git(repo, "add", ".claude/skills/a/SKILL.md")
         self.assertEqual([], rules_audit.unaudited(str(repo), self.state))
 
+    def test_repo_path_is_empty_when_the_file_sits_on_another_drive(self):
+        with mock.patch.object(rules_audit, "git", return_value=str(self.root)), \
+                mock.patch.object(rules_audit.os.path, "relpath", side_effect=ValueError("different drives")):
+            self.assertEqual("", rules_audit.repo_path("D:/x/AGENTS.md"))
+
     def test_a_non_ascii_skill_path_still_needs_a_pass(self):
         # git quotes a non-ASCII path in --name-only unless -z: a quoted name never matched.
         repo = self.repo()

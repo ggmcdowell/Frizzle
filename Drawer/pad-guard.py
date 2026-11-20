@@ -15,7 +15,6 @@ A session owns each heading that holds its session uuid8; a Flight owns all of F
 (it curates the backlog) and its own heading in the hub-root pad. Then the new text becomes the copy,
 so the same cut does not block again. It keeps the newest KEEP copies of each pad.
 """
-import fcntl
 import json
 import os
 import re
@@ -24,6 +23,9 @@ import time
 from pathlib import Path
 
 DRAWER = Path(__file__).resolve().parent
+sys.path.insert(0, str(DRAWER))
+import oscompat  # noqa: E402
+
 PADS = {"hub": "SCRATCHPAD.md", "flight": "Flight/SCRATCHPAD.md"}
 KEEP = 6
 SHRINK = 0.3
@@ -90,7 +92,7 @@ def check(event, hub, store, flight):
     """The block reply for this call, or None."""
     store.mkdir(parents=True, exist_ok=True)
     with open(store / "lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        oscompat.lock(lock, blocking=True)
         replies = []
         for key, rel in PADS.items():
             pad = hub / rel

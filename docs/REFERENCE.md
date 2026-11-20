@@ -5,7 +5,8 @@ variables and the tests. `Drawer/test_readme.py` checks these sections with the 
 
 ## Setup
 
-1. Clone the hub into any folder outside Desktop, Documents and Downloads. It must be a Git clone
+1. Clone the hub into any folder outside Desktop, Documents and Downloads (on Windows also outside OneDrive, on
+   a short path; see `.claude/skills/setup/WINDOWS.md`). It must be a Git clone
    with an `origin` that has `main` and that you can push to: every land pushes to `origin main`. Make your own
    copy with `Use this template` on GitHub (or push a copy to a new repository of your own), clone that, or point
    a clone at it with `git remote set-url origin <your repo URL>` (setup pushes `main` to an empty repository
@@ -33,11 +34,12 @@ variables and the tests. `Drawer/test_readme.py` checks these sections with the 
    ```
 
    `mem doctor` records which hub owns a DB. It fails when another hub owns it.
-3. Start Claude Code at the hub root and type `/setup`. The setup skill runs each command: it builds
+3. On Windows, first do `.claude/skills/setup/WINDOWS.md` (installs, `uv sync`, the Git Bash shims).
+   Start Claude Code at the hub root and type `/setup`. The setup skill runs each command: it builds
    `.venv` with `uv sync`, checks the tools, copies the deny list, renders `.mcp.json`, configures the
    seat, checks and seeds memory and binds Git. Add your own private names to the deny list it copies.
    The seat step also writes to your global Claude Code config, `~/.claude.json` (or
-   `$CLAUDE_CONFIG_DIR/.claude.json`): it marks the hub root and its task worktree folders as trusted,
+   `$CLAUDE_CONFIG_DIR/.claude.json`; on Windows `%USERPROFILE%\.claude.json`): it marks the hub root and its task worktree folders as trusted,
    so a session there does not stop at the folder trust dialog.
 4. Quit Claude Code fully, start it again at the hub root and type `/smoke`. The smoke skill checks
    the seat.
@@ -45,7 +47,8 @@ variables and the tests. `Drawer/test_readme.py` checks these sections with the 
    folder and its Git repo, writes the `[product]` lines into `harness.local.toml`, binds the product hooks and
    runs the first product gate: `.venv/bin/python -B Drawer/product-init.py --path ~/Projects/MyProduct
    --local-origin` (`--origin <url>` names your own origin). Add `--pack godot` for the Godot pack
-   (`examples/godot-pack/README.md`): it finds Godot, or prints `brew install --cask godot` and exits 75. With
+   (`examples/godot-pack/README.md`): it finds Godot, or prints `brew install --cask godot` (Windows: `winget install --id GodotEngine.GodotEngine -e`, with `GODOT` set
+   to the `*_console.exe`) and exits 75. With
    your own repo and `[product] gate_command`, commit a push gate `.githooks/pre-push` to it: a push is refused
    without one (`PRODUCT-CONVENTIONS.md` PRD-2; `examples/godot-pack/hooks/pre-push` is a template).
 
@@ -71,7 +74,7 @@ machines do not merge. To restore, or to start a hub on another machine: clone t
 ## Start Flight
 
 ```sh
-./Flight.command     # or double-click Flight.command in Finder
+./Flight.command     # or double-click Flight.command in Finder (Windows: double-click Flight.cmd)
 ```
 
 `Flight.command` at the hub root opens `claude` there with Code Mode on and waits; type `/flight` to start the lead session. The first

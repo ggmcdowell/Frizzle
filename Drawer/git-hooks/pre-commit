@@ -12,8 +12,10 @@
 # 1 and 2 always block. 3 and 4 block only when harness.toml sets [gates] bind = true;
 # until then they report (no gate binds until the base proof passes).
 repo=$(git rev-parse --show-toplevel) || exit 1
+export PYTHONUTF8=1
 python=""
-for candidate in "$repo/.venv/bin/python" "$(command -v python3 2>/dev/null)"; do
+# .venv/Scripts/python.exe is the Windows interpreter; .venv/bin/python there is a shell shim, tried after it.
+for candidate in "$repo/.venv/Scripts/python.exe" "$repo/.venv/bin/python" "$(command -v python3 2>/dev/null)" "$(command -v python 2>/dev/null)"; do
   [ -n "$candidate" ] || continue
   # Python 3.12 or newer only: an older python3 cannot import tomllib (pyproject requires-python).
   if "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 12))' </dev/null >/dev/null 2>&1; then python=$candidate; break; fi
@@ -23,7 +25,7 @@ if test -z "$python"; then
   exit 1
 fi
 if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "pre-commit: gitleaks is not installed (brew install gitleaks)." >&2
+  echo "pre-commit: gitleaks is not installed (brew install gitleaks, or winget install gitleaks.gitleaks)." >&2
   exit 1
 fi
 gitleaks git --staged --no-banner --redact -l warn -c "$repo/.gitleaks.toml" "$repo" || {

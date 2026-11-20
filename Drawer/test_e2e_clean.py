@@ -89,8 +89,66 @@ class E2eCleanTests(unittest.TestCase):
 
     def test_e2e_sh_runs_the_cleanup_on_pass(self):
         text = (HERE / "e2e.sh").read_text(encoding="utf-8")
-        self.assertIn('/usr/bin/python3 "$SRC/Drawer/e2e_clean.py" "$T"', text)
+        self.assertIn('"$SYSPY" "$SRC/Drawer/e2e_clean.py" "$T"', text)
+        self.assertIn("SYSPY=/usr/bin/python3", text)  # the POSIX run keeps the system Python
         self.assertNotIn('trash "$T" 2>/dev/null', text)
+
+    def test_windows_matches_a_trust_row_in_either_slash_style_and_drive_case(self):
+        with mock.patch.object(e2e_clean.oscompat, "WINDOWS", True):
+            for key in ("C:\\Temp\\frz-e2e.X", "c:/temp/frz-e2e.X/hub", "C:/Temp/frz-e2e.X\\hub_wt"):
+                self.assertTrue(e2e_clean.under(key, "C:\\Temp\\frz-e2e.X"), key)
+            for key in ("C:/Temp/frz-e2e.X2", "D:/Temp/frz-e2e.X", "/srv/other"):
+                self.assertFalse(e2e_clean.under(key, "C:\\Temp\\frz-e2e.X"), key)
+        self.assertFalse(e2e_clean.under("C:/Temp/frz-e2e.X", "C:\\Temp\\frz-e2e.X"))  # POSIX: spelled exactly
+
+    def test_a_config_held_by_a_running_client_is_reported_not_a_traceback(self):
+        self.seed()
+        with mock.patch.object(e2e_clean.oscompat, "replace", side_effect=PermissionError(5, "Access is denied")):
+            with self.assertRaisesRegex(RuntimeError, "is in use"):
+                e2e_clean.clean(str(self.temp), str(self.config), str(self.projects), str(self.trash))
+        self.assertEqual([], [p.name for p in self.config.parent.iterdir() if p.name.startswith(".claude.json.")])
+
+    def test_windows_sends_the_transcript_folders_to_the_recycle_bin_with_no_trash_command(self):
+        self.seed()
+        (self.projects / (self.munged + "-hub")).mkdir()
+        with mock.patch.object(e2e_clean.oscompat, "WINDOWS", True), \
+                mock.patch.object(e2e_clean.oscompat, "recycle") as recycle:
+            e2e_clean.clean(str(self.temp), str(self.config), str(self.projects), None)
+        recycle.assert_called_once_with(str(self.projects / (self.munged + "-hub")))
+
+    def test_windows_e2e_sh_passes_the_profile_through_env_i(self):
+        """With uname saying MINGW64, the re-exec's env -i also carries SYSTEMROOT, USERPROFILE and PYTHONUTF8."""
+        tools = self.root / "fakebin"
+        tools.mkdir()
+        record = self.root / "env-args"
+        (tools / "uname").write_text("#!/bin/sh\necho MINGW64_NT-10.0\n")
+        (tools / "env").write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$RECORD"\n')
+        for name in ("uname", "env"):
+            (tools / name).chmod(0o755)
+        subprocess.run(["/bin/bash", str(HERE / "e2e.sh")], capture_output=True, text=True, timeout=30,
+                       env={"HOME": str(self.root), "PATH": f"{tools}:/usr/bin:/bin", "RECORD": str(record),
+                            "SYSTEMROOT": "C:\\Windows", "USERPROFILE": "C:\\Users\\me", "USERNAME": "me"})
+        args = record.read_text().splitlines()
+        for want in ("SYSTEMROOT=C:\\Windows", "USERPROFILE=C:\\Users\\me", "USERNAME=me", "PYTHONUTF8=1", "E2E_CLEAN=1"):
+            self.assertIn(want, args)
+
+    def test_posix_e2e_sh_adds_no_windows_variable_to_env_i(self):
+        tools = self.root / "fakebin"
+        tools.mkdir()
+        record = self.root / "env-args"
+        (tools / "env").write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$RECORD"\n')
+        (tools / "env").chmod(0o755)
+        subprocess.run(["/bin/bash", str(HERE / "e2e.sh")], capture_output=True, text=True, timeout=30,
+                       env={"HOME": str(self.root), "PATH": f"{tools}:/usr/bin:/bin", "RECORD": str(record),
+                            "SYSTEMROOT": "C:\\Windows"})
+        self.assertFalse([a for a in record.read_text().splitlines() if a.startswith("SYSTEMROOT=")])
+
+    def test_e2e_sh_parses_and_picks_the_windows_interpreter_and_a_cmd_godot_stub(self):
+        self.assertEqual(0, subprocess.run(["/bin/bash", "-n", str(HERE / "e2e.sh")]).returncode)
+        text = (HERE / "e2e.sh").read_text(encoding="utf-8")
+        self.assertIn('PYBIN="$H/.venv/Scripts/python.exe"', text)
+        self.assertIn('export GODOT="$T/bin/godot.cmd"', text)
+        self.assertIn('T=$(cygpath -m "$T")', text)
 
 
 if __name__ == "__main__":

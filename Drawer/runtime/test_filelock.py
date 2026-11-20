@@ -4,6 +4,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 
 DRAWER = Path(__file__).resolve().parents[1]
 if str(DRAWER) not in sys.path:
@@ -29,6 +30,14 @@ class FileLockTests(unittest.TestCase):
                     self.fail("a second holder entered a held lock")
         self.assertEqual(self.path, caught.exception.path)
         self.assertIn(str(self.path), str(caught.exception))
+
+    def test_the_lock_is_taken_and_released_through_oscompat(self):
+        with unittest.mock.patch.object(filelock.oscompat, "lock") as lock, \
+                unittest.mock.patch.object(filelock.oscompat, "unlock") as unlock:
+            with filelock.FileLock(self.path, 5) as held:
+                lock.assert_called_once_with(held.handle)
+                unlock.assert_not_called()
+            unlock.assert_called_once()
 
     def test_release_lets_the_next_holder_in(self):
         with filelock.FileLock(self.path, 5):

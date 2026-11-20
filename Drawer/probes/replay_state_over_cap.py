@@ -29,7 +29,8 @@ def replay(hub, product):
         os.environ.pop(hooks.ONESHOT_VAR, None)
         base = Path(tmp)
         rows = "".join(f"- row {n}\n" for n in range(84))
-        (base / "SCRATCHPAD.md").write_text(f"## State\nSlack seen: 1 read {now:%Y-%m-%dT%H:%M}\n{rows}## Notes\n")
+        (base / "SCRATCHPAD.md").write_text(f"## State\nSlack seen: 1 read {now:%Y-%m-%dT%H:%M}\n{rows}## Notes\n",
+                                            encoding="utf-8", newline="\n")
         out = hooks.stop(base, {"stop_hook_active": False}, now)
         if '"block"' not in out or "86 lines" not in out:
             return f"an 86-line State did not block Stop with its count: {out!r}"
@@ -39,7 +40,7 @@ def replay(hub, product):
                 hooks.log(base, {"event": "note", "n": n}, now)
         finally:
             hooks.LOG_KEEP = keep
-        kept = [json.loads(line)["n"] for line in (base / "log.jsonl").read_text().splitlines()]
+        kept = [json.loads(line)["n"] for line in (base / "log.jsonl").read_text(encoding="utf-8").splitlines()]
         if kept != [3, 4, 5]:
             return f"the log kept {kept}, not the newest 3 rows"
     return None

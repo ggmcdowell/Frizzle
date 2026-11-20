@@ -15,6 +15,7 @@ set it, so a local binding ([product] path, the roots) never reaches a hub test.
 """
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -75,7 +76,7 @@ def load(root=None):
     local = local_toml(root) if use_local else root / LOCAL
     use_local = use_local and local.is_file()
     if use_local:
-        cfg = _merge(cfg, tomllib.loads(local.read_text(encoding="utf-8")))
+        cfg = _merge(cfg, tomllib.loads(local.read_text(encoding="utf-8-sig")))  # a hand-made file may carry a BOM
     py = oscompat.venv_python(root)
     cfg["derived"] = {
         "root": str(root),
@@ -109,6 +110,16 @@ def main_checkout(path):
     except (OSError, subprocess.CalledProcessError):
         return Path(path)
     return Path(common).resolve().parent
+
+
+def gate_argv(command):
+    """A [product] gate_command as an argv: split like a shell line (write paths in it with forward slashes), {python}
+    as the hub interpreter. On Windows a leading sh or bash is Git for Windows' own (oscompat.git_shell), as a script
+    path or the WSL launcher in System32 would not run the gate. ValueError: it does not parse; OSError: no Git sh."""
+    argv = [sys.executable if word == "{python}" else word for word in shlex.split(command)]
+    if oscompat.WINDOWS and argv and argv[0] in ("sh", "bash"):
+        argv[0] = oscompat.git_shell(argv[0])
+    return argv
 
 
 def env_name(suffix, cfg=None):

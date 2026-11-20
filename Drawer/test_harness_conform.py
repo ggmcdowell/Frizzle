@@ -301,6 +301,7 @@ class HarnessConformTests(unittest.TestCase):
             shutil.copy2(PATH, hub / "Drawer/harness_conform_real.py")
             # the real file reads the hub config from the tree's own copy
             shutil.copy2(HUB / "Drawer/harness_config.py", hub / "Drawer/harness_config.py")
+            shutil.copy2(HUB / "Drawer/oscompat.py", hub / "Drawer/oscompat.py")
             shutil.copy2(HUB / "harness.toml", hub / "harness.toml")
             tool = hub / "Drawer/tool.py"
             tool.write_text("clean\n", encoding="utf-8")
@@ -369,6 +370,41 @@ class HarnessConformTests(unittest.TestCase):
                 return path.read_text(encoding="utf-8") if path.is_file() else ""
             self.assertEqual(("interpreter", "through the link"),
                              (text(real / "python.exe"), text(real / "marker")))
+
+    def test_a_windows_export_links_the_interpreter_with_a_junction_not_a_symlink(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            hub, dest = Path(temporary, "hub"), Path(temporary, "tree")
+            (hub / ".venv").mkdir(parents=True)
+            dest.mkdir()
+            calls = []
+
+            def fake(args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 0, str(hub / ".git") + "\n", "")
+            with patch.object(HARNESS, "HUB", hub), patch.object(HARNESS.oscompat, "WINDOWS", True), \
+                    patch.object(HARNESS.subprocess, "run", side_effect=fake), \
+                    patch.object(Path, "symlink_to", side_effect=AssertionError("a symlink needs privilege")):
+                HARNESS._export_tree(dest)
+            self.assertEqual(["cmd", "/c", "mklink", "/J", str(dest / ".venv"), str((hub / ".venv").resolve())], calls[-1])
+
+    def test_index_sizes_sends_the_blob_ids_as_bytes_so_no_crlf_reaches_git(self):
+        seen = {}
+
+        def fake(args, **kwargs):
+            if args[:2] == ["git", "cat-file"]:
+                seen.update(kwargs)
+                return subprocess.CompletedProcess(args, 0, b"7\n", b"")
+            return subprocess.CompletedProcess(args, 0, "100644 abc 0\ta.py\0", "")
+        with patch.object(HARNESS.subprocess, "run", side_effect=fake):
+            self.assertEqual({"a.py": 7}, HARNESS._index_sizes())
+        self.assertEqual(b"abc\n", seen["input"])
+
+    def test_superseded_opens_the_database_by_a_file_uri_that_survives_a_space_in_the_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            db = Path(temporary, "a b#c", "hub.db")
+            db.parent.mkdir()
+            mem_fixture(str(db), [("11111111-x", "22222222-y"), ("22222222-y", None)])
+            self.assertEqual({"11111111": "22222222"}, HARNESS._superseded(db))
 
     def test_a_timed_out_run_dies_with_its_grandchild_holding_the_pipe(self):
         """A hung child whose grandchild inherits stdout: the timeout kills the whole tree,

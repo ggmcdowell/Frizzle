@@ -5,6 +5,7 @@
 # SCRIPT ERROR line, and the test prints a SMOKE PASS line. A test that ran zero checks is red (PRD-1).
 # Exit: 0 green, 1 red, 75 BLOCKED: no Godot here ([smoke] blocked_exit in the hub's harness.toml).
 # Godot is GODOT, else godot on PATH, else the macOS app (GODOT_APP names another app binary).
+# Windows (Git Bash): GODOT must name the console build (Godot_v..._console.exe), the one that writes the SMOKE PASS line to stdout.
 # Green on a clean checkout also writes <repo>/.gate-verdict: the tree id of HEAD. .githooks/pre-push reads it (PRD-2).
 set -u
 project=${1:-.}
@@ -16,7 +17,7 @@ find_godot() {
   command -v godot || { test -x "$app" && echo "$app"; }
 }
 godot=$(find_godot 2>/dev/null) || godot=
-test -n "$godot" || { echo "gate: BLOCKED: no Godot: set GODOT, put godot on PATH or run: brew install --cask godot" >&2; exit "$blocked"; }
+test -n "$godot" || { echo "gate: BLOCKED: no Godot: set GODOT, put godot on PATH or run: brew install --cask godot (Windows: winget install GodotEngine.GodotEngine, then set GODOT to the _console.exe)" >&2; exit "$blocked"; }
 top=$(git -C "$project" rev-parse --show-toplevel 2>/dev/null) || top=
 test -z "$top" || : >"$top/.gate-verdict" # a stale verdict never covers a new run
 test -f "$project/tests/smoke_test.gd" || red "$project/tests/smoke_test.gd is missing: no test ran"

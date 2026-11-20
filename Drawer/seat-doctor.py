@@ -19,6 +19,7 @@ import os
 import argparse
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,7 @@ from pathlib import Path
 HUB = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HUB / "Drawer"))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 
 CFG = harness_config.load(HUB)
 MIN_PYTHON = (3, 12)
@@ -67,6 +69,8 @@ def _same_path(left: Path, right: Path) -> bool:
 
 def run_command(args: list[str], timeout: int = 30):
     """(returncode, output). (None, reason) when the command could not run at all."""
+    if oscompat.WINDOWS:  # CreateProcess adds only .exe; which honours PATHEXT (claude is a .cmd from npm)
+        args = [shutil.which(args[0]) or args[0], *args[1:]]
     try:
         done = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         return done.returncode, (done.stdout or "") + (done.stderr or "")
@@ -200,6 +204,9 @@ def seat_source_item(carried, applied, main_hub: Path | None = None) -> Item:
         value = (value or "").strip()
         if value == (applied.get(name) or "").strip():
             return True
+        if name == hub_key and oscompat.WINDOWS and (applied.get(name) or "").strip() \
+                and _same_path(_resolved(value), _resolved(applied[name].strip())):
+            return True  # a forward-slash or other-case spelling of the same folder
         return name == hub_key and main_hub is not None and _same_path(_resolved(value), _resolved(str(main_hub)))
 
     differing = sorted(name for name, value in named.items() if not matches(name, value))

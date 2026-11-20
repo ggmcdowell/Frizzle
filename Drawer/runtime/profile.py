@@ -27,6 +27,7 @@ _DRAWER = Path(__file__).resolve().parents[1]
 if str(_DRAWER) not in sys.path:
     sys.path.insert(0, str(_DRAWER))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 
 SCHEMA_VERSION = 1
 AGENTS = frozenset({"claude"})
@@ -148,7 +149,7 @@ def _atomic_write(path: Path, data: bytes, mode: int) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        oscompat.replace(temporary, path)
         os.chmod(path, mode)
     finally:
         if temporary is not None:
@@ -224,7 +225,7 @@ def machine(hub: str | Path, env: Mapping[str, str] | None = None) -> Machine:
     profile, its agent. A seat with no profile (setup required) names no provider.
     """
     root = Path(hub).resolve()
-    host = "posix"
+    host = "nt" if oscompat.WINDOWS else "posix"
     if default_profile_path(root).exists():
         return Machine(host, load_runtime_profile(root).get("agent") or None)
     return Machine(host, None)

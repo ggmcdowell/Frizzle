@@ -66,6 +66,14 @@ class MeetingCleanTest(unittest.TestCase):
         self.assertEqual(lines[-1]["blocks"], 3)
         self.assertFalse(lines[-1]["estimated"])
 
+    def test_a_transcript_saved_with_a_bom_keeps_its_first_label(self):
+        (self.dir / "bom.txt").write_bytes(b"\xef\xbb\xbf" + TIMED.encode("utf-8"))
+        dst = self.dir / "out" / "bom.md"
+        code, lines = self.cli("bom.txt", dst)
+        self.assertEqual(code, 0, lines)
+        self.assertEqual(re.findall(r"^## (.*)$", dst.read_text(encoding="utf-8"), re.M),
+                         ["00:00:05", "00:01:12", "00:02:15"])
+
     def test_an_unlabeled_memo_takes_the_speaker_and_estimated_stamps(self):
         dst = self.dir / "memo.md"
         code, lines = self.cli("memo.txt", dst, "--speaker", "Alex")

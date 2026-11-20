@@ -14,6 +14,9 @@ import shlex
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import oscompat  # noqa: E402
+
 # A Claude shell grep -r, find or ls -t over a whole generated tree ([product] broad_roots), or over the
 # product root ([product] path), runs past the 120 s tool timeout. A narrower path passes. Claude Code
 # only: Drawer/project-gate.py calls this.
@@ -38,6 +41,8 @@ def _search_paths(words):
     if not words:
         return None, []
     prog, args = os.path.basename(words[0]).lower(), words[1:]
+    if oscompat.WINDOWS:
+        prog = re.sub(r"\.(exe|cmd|bat)$", "", prog)  # grep.exe, C:\Git\usr\bin\find.exe
     if prog in ("grep", "egrep", "fgrep"):
         recursive, positional, has_pattern, skip = False, [], False, False
         for a in args:
@@ -75,6 +80,11 @@ def _trimmed(path):
     return path
 
 
+def _same(path):
+    """path as one absolute spelling to compare: a Git Bash /c/x is C:/x and Windows case is folded."""
+    return os.path.normcase(os.path.abspath(os.path.expanduser(oscompat.native_path(path))))
+
+
 def _product():
     """([product] path absolute or "", [product] broad_roots as a tuple); ("", ()) when the config does not read."""
     try:
@@ -86,7 +96,7 @@ def _product():
     product = cfg.get("product") or {}
     project = str(product.get("path") or "")
     roots = tuple(str(r).strip("/") for r in product.get("broad_roots") or () if str(r).strip("/"))
-    return (os.path.abspath(os.path.expanduser(project)) if project else ""), roots
+    return (_same(project) if project else ""), roots
 
 
 def unscoped_search_reason(command):
@@ -94,6 +104,8 @@ def unscoped_search_reason(command):
     ([product] path and broad_roots) is read only when a search names a path."""
     searches = []
     for segment in SEGMENT.split(command):
+        if oscompat.WINDOWS:
+            segment = segment.replace("\\", "/")  # a backslash path is no escape on Windows
         try:
             words = shlex.split(segment)
         except ValueError:
@@ -108,7 +120,7 @@ def unscoped_search_reason(command):
         trimmed = _trimmed(path)
         if trimmed.rsplit("/", 1)[-1] in roots:
             return UNSCOPED_SEARCH_REASON % (shape, clip(path))
-        if project and os.path.abspath(os.path.expanduser(trimmed or "/")) == project:
+        if project and _same(trimmed or "/") == project:
             return UNSCOPED_SEARCH_REASON % (shape, clip(path))
     return None
 

@@ -57,7 +57,8 @@ folder. Harness manual: `.claude/skills/harness/MANUAL.md`, New hub.
 uv sync
 ```
 
-It builds `.venv` from `uv.lock`. Rerunning it is safe. `uv` not found: on a Mac with Homebrew
+It builds `.venv` from `uv.lock`. Rerunning it is safe. On Windows follow `.claude/skills/setup/WINDOWS.md`
+(winget installs, then the Git Bash shims). `uv` not found: on a Mac with Homebrew
 run `brew install uv`, then rerun; with no Homebrew, tell the human that uv is missing
 (<https://docs.astral.sh/uv/>) and stop. Every commit needs gitleaks: run `brew install gitleaks` when step 2 fails on it.
 
@@ -172,7 +173,7 @@ app, never a computer restart. Tell the human, with the hub path:
   again, open the same folder (<hub path>), start a new chat, and type /smoke."
 - Terminal session: "Close this terminal, start `claude` in a new terminal in <hub path>, and type
   /smoke."
-- Both: "After the smoke passes, double-click `Flight.command` in <hub path>. It opens Claude
+- Both: "After the smoke passes, double-click `Flight.command` (Windows: `Flight.cmd`) in <hub path>. It opens Claude
   with Code Mode on and waits: type /flight to start Flight. Its first start asks one Code Mode
   question: answer it yourself."
 
