@@ -10,17 +10,20 @@ and tests enforce the rules in `AGENTS.md`.
 
 ```sh
 git clone <your copy: Use this template on GitHub> my-hub && cd my-hub
-Drawer/e2e.sh        # optional: one headless run in a temp clone, the starter card to done (about 8 minutes, about 2 USD)
+Drawer/e2e.sh        # optional, paid: one headless run in a temp clone, the starter card to done (about 8 minutes, about 2 USD)
 claude               # type /setup; quit and start again; type /smoke; then double-click Flight.command and type /flight
 ```
 
 The first-run order is: `Drawer/e2e.sh` (optional), `/setup`, quit and start again, `/smoke`, `/flight`.
-`Drawer/e2e.sh` is a paid headless test run: about 2 USD and about 8 minutes. Skip it on a first try.
+`Drawer/e2e.sh` is a paid headless test run: about 2 USD and about 8 minutes. Skip it on a first try. It runs
+before `/setup`, so it installs nothing: it needs `uv`, `claude` (signed in) and `trash` on PATH.
 
 ## Start a Godot game
 
 1. Install [Homebrew](https://brew.sh), the Xcode command line tools (`xcode-select --install`) and
-   [Claude Code](https://code.claude.com/docs) on a Mac, and sign in to Claude Code. Setup installs the rest.
+   [Claude Code](https://code.claude.com/docs) on a Mac, and sign in to Claude Code. Then run `brew install gh`
+   and `gh auth login` to sign Git in to GitHub. Setup does not do this. Setup installs uv and gitleaks, and
+   Godot for a game.
 2. On GitHub, press `Use this template` to make your own copy (it can be private). Clone your copy with `git clone`
    into a folder outside Desktop, Documents and Downloads. Do not use Download ZIP: the hub needs a Git clone
    that can push.
@@ -55,7 +58,8 @@ Not included: art or asset tools, and an editor tool server for Godot. Add your 
 ## Requirements
 
 - macOS, with Homebrew and the Xcode command line tools (git)
-- [Claude Code](https://code.claude.com/docs) 2.1.316 or newer, signed in (the seat doctor fails below it).
+- [Claude Code](https://code.claude.com/docs) 2.1.316 or newer, signed in. Check with `claude --version`; update
+  with `claude update`. `/setup` checks the version and asks you to update below it.
   The CLI is needed; the desktop app alone is not enough. Every `/flight` run spends tokens on your Claude plan
   or API account, and Flight plans on Opus.
 - A GitHub account that can push to your copy (`gh auth login`, or a Git credential helper)
@@ -63,6 +67,7 @@ Not included: art or asset tools, and an editor tool server for Godot. Add your 
 - [gitleaks](https://github.com/gitleaks/gitleaks) (the pre-commit secret scan)
 - Optional: a product repo with a test command (its gate)
 - Optional: Godot 4 for a Godot game (setup installs it with `brew install --cask godot`)
+- Optional: `trash` for `Drawer/e2e.sh` (`/usr/bin/trash`, or `brew install trash`)
 - Optional: an OpenAI API key (memory embeddings). With a key, card text and search queries go to the OpenAI API.
 
 ## Safety
@@ -71,10 +76,12 @@ Not included: art or asset tools, and an editor tool server for Godot. Add your 
 - The gates and hooks are guardrails, not a sandbox. The local allow list lets an agent run any git, uv or hub
   Python command in the hub. Nothing runs with permissions bypassed.
 - Setup writes outside the clone. It marks folders trusted in `~/.claude.json` (or `$CLAUDE_CONFIG_DIR`): the
-  hub, `<hub>_wt` and, with a game, `<game>_wt`. It keeps memory and settings in the `config_root` and
-  `state_root` folders that `harness.toml` names.
-- To remove the hub, delete the clone, `<hub>_wt`, the two root folders, and the `projects` rows of those
-  folders in `~/.claude.json`. A game also has its own folder, `<game>_wt` and a local `<game>-origin.git`.
+  hub, `<hub>_wt` and, with a game, `<game>_wt`. A `_wt` folder stands beside its clone and holds the task
+  worktrees (clone `~/Projects/my-hub` gives `~/Projects/my-hub_wt`). It keeps memory and settings in the
+  `config_root` and `state_root` folders that `harness.toml` names.
+- To remove the hub, delete the clone, `<hub>_wt`, and the two root folders (`config_root` and `state_root` in
+  `harness.toml`; `harness.local.toml` can change them). Then delete the `projects` rows of those folders in
+  `~/.claude.json`. A game also has its own folder, `<game>_wt` and a local `<game>-origin.git`.
 - Each session start pulls your copy's `main`: work in your own copy, never in a plain clone of this repository.
 - Report a security problem with GitHub private vulnerability reporting (`SECURITY.md`).
 
