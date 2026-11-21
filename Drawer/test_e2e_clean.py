@@ -14,7 +14,9 @@ sys.path.insert(0, str(HERE))
 import e2e_clean  # noqa: E402
 import oscompat  # noqa: E402
 
-BASH = oscompat.git_shell("bash")  # Windows: Git for Windows' bash, never the WSL launcher
+# Windows: Git for Windows' bash, never the WSL launcher. POSIX: an absolute path, because a test runs bash under an env
+# whose PATH holds only a fake-tool folder (no bash on it), and subprocess looks a bare name up on that env's PATH (macOS: FileNotFoundError).
+BASH = oscompat.git_shell("bash") if oscompat.WINDOWS else "/bin/bash"
 
 FAKE_TRASH = "#!/bin/sh\nfor f; do mv \"$f\" \"$TRASHED\"/; done\n"
 

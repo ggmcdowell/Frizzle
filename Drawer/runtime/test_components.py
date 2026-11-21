@@ -425,6 +425,11 @@ class RepairTests(ComponentsFixture):
         (self.hub / ".mcp.json").unlink()
         self.python.unlink()
         self.python.symlink_to(sys.executable)
+        # A Windows venv launcher finds its base Python through the pyvenv.cfg beside it (one folder up); a
+        # symlink to the launcher has none, and a 3.12.10 launcher dies with exit 106 "No pyvenv.cfg file".
+        config = Path(sys.prefix) / "pyvenv.cfg"
+        if os.name == "nt" and config.is_file():
+            (self.python.parent.parent / "pyvenv.cfg").write_bytes(config.read_bytes())
         got = components._recheck(self.hub, "memory", os.environ.copy())
         self.assertEqual(("memory", "FAIL"), (got["name"], got["status"]))
         self.assertIn("is not registered for this seat", got["reason"])

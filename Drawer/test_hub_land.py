@@ -121,11 +121,19 @@ class HubLandTests(unittest.TestCase):
         child = {**self.child_env(), **temp, "CLAUDE_CODE_SESSION_ID": gbp.OWN_SESSION, "HOME": str(self.home),
                  "SMOKE_LOG": str(self.smoke_log), **env}
         script = (self.tree if self.tree.exists() else self.repo) / "Drawer/hub-land.py"
-        run = subprocess.run([sys.executable, "-B", str(script), "--name", NAME, *args],
+        run = subprocess.run([self.session_python(), "-B", str(script), "--name", NAME, *args],
                              cwd=str(cwd or self.repo), capture_output=True, text=True, env=child, check=False)
         lines = run.stdout.strip().splitlines()
         self.assertEqual(1, len(lines), f"one JSON line, got stdout {run.stdout!r} stderr {run.stderr!r}")
         return run.returncode, json.loads(lines[0])
+
+    @staticmethod
+    def session_python() -> str:
+        """The interpreter a land child runs on. A Windows venv python.exe of a python.org build is a launcher that
+        starts the real interpreter and waits, holding the child's start folder open: a land started in the task
+        worktree could never delete it (a CI runner's removal failed with Permission denied). The base interpreter
+        is that child without the launcher; POSIX has no launcher."""
+        return sys._base_executable if os.name == "nt" else sys.executable
 
     def branch_tip(self) -> str:
         return self.git("rev-parse", "--verify", "--quiet", f"refs/heads/{BRANCH}", check=False).stdout.strip()

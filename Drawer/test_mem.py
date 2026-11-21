@@ -5,6 +5,7 @@ import io
 import json
 import math
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1340,6 +1341,12 @@ class LostDbTest(unittest.TestCase):
     """A lost or corrupt memory DB is named at boot with the restore command, and an empty DB never overwrites the export."""
     IMPORT = ".venv/bin/python -B Drawer/mem/mem.py import "
 
+    @staticmethod
+    def word(path):
+        """A path as the restore line writes it: C:/x/y on Windows, quoted when the shell reads a character in it (a
+        runner's 8.3 temp folder RUNNER~1 holds a tilde); a POSIX path as it is."""
+        return shlex.quote(Path(path).as_posix()) if os.name == "nt" else str(path)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         base = Path(self.tmp.name)
@@ -1370,7 +1377,7 @@ class LostDbTest(unittest.TestCase):
         self.assertEqual(0, code)
         lines = [ln for ln in out.splitlines() if "Restore:" in ln]
         self.assertEqual(1, len(lines), out)
-        self.assertIn(self.IMPORT + (self.export / "cards.jsonl").as_posix(), lines[0])
+        self.assertIn(self.IMPORT + self.word(self.export / "cards.jsonl"), lines[0])
 
     def test_a_missing_db_with_only_a_snapshot_names_the_copy(self):
         self.backup()
@@ -1381,7 +1388,7 @@ class LostDbTest(unittest.TestCase):
         _, out, _ = self.cli("digest")
         lines = [ln for ln in out.splitlines() if "Restore:" in ln]
         self.assertEqual(1, len(lines), out)
-        self.assertIn(f"cp {Path(snap).as_posix()} {self.db.as_posix()}", lines[0])
+        self.assertIn(f"cp {self.word(snap)} {self.word(self.db)}", lines[0])
 
     def test_a_fresh_clone_with_no_backup_prints_no_restore_line(self):
         _, out, _ = self.cli("digest")
@@ -1402,7 +1409,7 @@ class LostDbTest(unittest.TestCase):
         self.assertEqual(1, len(err), err)
         err = err[0]
         self.assertIn("file is not a database", err)
-        self.assertIn(f"mv {self.db.as_posix()} {self.db.as_posix()}.bad; {self.IMPORT}{(self.export / 'cards.jsonl').as_posix()}", err)
+        self.assertIn(f"mv {self.word(self.db)} {self.word(f'{self.db}.bad')}; {self.IMPORT}{self.word(self.export / 'cards.jsonl')}", err)
 
     def test_a_locked_db_is_not_called_corrupt(self):
         with mock.patch.object(mem, "Mem", side_effect=mem.sqlite3.OperationalError("database is locked")):
@@ -1416,7 +1423,7 @@ class LostDbTest(unittest.TestCase):
         code, _, err = self.cli("nightly")
         self.assertEqual(2, code)
         self.assertEqual(before, exported.read_text())
-        self.assertIn(self.IMPORT + Path(exported).as_posix(), err)
+        self.assertIn(self.IMPORT + self.word(exported), err)
 
     def test_export_with_an_empty_db_keeps_a_non_empty_export(self):
         self.backup()
@@ -1441,7 +1448,7 @@ class LostDbTest(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertTrue(out.startswith("MEMORY DB HOLDS ONLY THE STARTER CARDS, but a backup holds more. Restore: "), out)
         self.assertEqual(1, len([ln for ln in out.splitlines() if "Restore:" in ln]), out)
-        self.assertIn(self.IMPORT + Path(exported).as_posix(), out)
+        self.assertIn(self.IMPORT + self.word(exported), out)
 
     def test_nightly_and_export_of_a_seeded_db_keep_a_bigger_export(self):
         exported = self.starter_only_with_a_bigger_backup()
@@ -1449,7 +1456,7 @@ class LostDbTest(unittest.TestCase):
         for verb in ("nightly", "export"):
             code, _, err = self.cli(verb)
             self.assertEqual(2, code, verb)
-            self.assertIn(self.IMPORT + Path(exported).as_posix(), err)
+            self.assertIn(self.IMPORT + self.word(exported), err)
             self.assertIn("only the starter cards", err)
             self.assertEqual(before, exported.read_text(), verb)
 

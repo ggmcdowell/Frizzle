@@ -156,8 +156,9 @@ class RuleIdTest(unittest.TestCase):
         return repo
 
     def commit(self, repo, agents, skill, msg):
-        (repo / "AGENTS.md").write_text(agents)
-        (repo / ".claude" / "skills" / "a" / "SKILL.md").write_text(skill)
+        # The fixtures hold an em dash and the audit reads UTF-8: write UTF-8 whatever the ANSI code page.
+        (repo / "AGENTS.md").write_text(agents, encoding="utf-8")
+        (repo / ".claude" / "skills" / "a" / "SKILL.md").write_text(skill, encoding="utf-8")
         self.git(repo, "add", "-A")
         self.git(repo, "commit", "-q", "--no-verify", "-m", msg)
         return self.git(repo, "rev-parse", "HEAD").strip()
@@ -205,16 +206,16 @@ class RuleIdTest(unittest.TestCase):
                          [f.split(",")[0] for f in rules_audit.id_faults("# R\n- WRK-2 other — x\n", {}, {"WRK-2"})])
         self.state.mkdir(parents=True)
         self.enterContext(mock.patch.object(rules_audit, "state_dir", return_value=self.state))
-        (repo / "AGENTS.md").write_text("# R\n- WRK-2 other — x\n")
+        (repo / "AGENTS.md").write_text("# R\n- WRK-2 other — x\n", encoding="utf-8")
         self.git(repo, "add", "AGENTS.md")
         self.assertTrue(any("reuses WRK-2, retired by an earlier commit" in r for r in rules_audit.refusals(str(repo))))
-        (repo / "AGENTS.md").write_text("# R\n- WRK-3 next — x\n")
+        (repo / "AGENTS.md").write_text("# R\n- WRK-3 next — x\n", encoding="utf-8")
         self.git(repo, "add", "AGENTS.md")
         self.assertEqual([], [r for r in rules_audit.refusals(str(repo)) if "OPR-10" in r])
 
     def test_check_and_staged_refuse_each_fault(self):
         repo = self.history()
-        (repo / "AGENTS.md").write_text("# R\n- no head\n- WRK-2 back — x\n- WRK-3 c — y\n- WRK-3 d — z\n")
+        (repo / "AGENTS.md").write_text("# R\n- no head\n- WRK-2 back — x\n- WRK-3 c — y\n- WRK-3 d — z\n", encoding="utf-8")
         self.git(repo, "add", "AGENTS.md")
         blob = self.git(repo, "rev-parse", ":AGENTS.md").strip()
         self.state.mkdir(parents=True)
@@ -238,11 +239,11 @@ class RuleIdTest(unittest.TestCase):
         self.commit(repo, "# R\n- WRK-1 a — x\n", "# S\n", "1")
         self.enterContext(mock.patch.object(rules_audit, "state_dir", return_value=self.state))
         self.enterContext(mock.patch.object(rules_audit, "ID_BASE", "0" * 40))  # a pinned base this repo lacks
-        (repo / ".claude" / "skills" / "a" / "SKILL.md").write_text("# S\n- WRK-1 b — y\n")
+        (repo / ".claude" / "skills" / "a" / "SKILL.md").write_text("# S\n- WRK-1 b — y\n", encoding="utf-8")
         self.git(repo, "add", "-A")
         self.assertTrue(any("WRK-1 is used more than once" in r for r in rules_audit.refusals(str(repo))))
         self.assertFalse(any("history unreadable" in r for r in rules_audit.refusals(str(repo))))
-        (repo / "AGENTS.md").write_text("# R\n- WRK-1 a — x\n- WRK-2 b — y\n")
+        (repo / "AGENTS.md").write_text("# R\n- WRK-1 a — x\n- WRK-2 b — y\n", encoding="utf-8")
         self.git(repo, "add", "-A")
         self.assertTrue(any("history unreadable" in r for r in rules_audit.refusals(str(repo))))
         self.assertTrue(any("history unreadable" in f for f in rules_audit.id_report(repo)))

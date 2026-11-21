@@ -52,7 +52,10 @@ def run_held(argv, data=b"", timeout=5.0, env=None):
 class HelpFlagTests(unittest.TestCase):
     def setUp(self):
         home = tempfile.mkdtemp()
-        self.env = dict(os.environ, HOME=home, CLAUDE_CODE_SESSION_ID="00000000-0000-4000-8000-0000000000aa")
+        # PYTHONUTF8=1 as the hub's settings give every hook and script: under a cp1252 ANSI code page (a CI runner)
+        # the em dash in harness-conform.py's docstring prints as one 0x97 byte, which the UTF-8 decode below rejects.
+        self.env = dict(os.environ, HOME=home, PYTHONUTF8="1",
+                        CLAUDE_CODE_SESSION_ID="00000000-0000-4000-8000-0000000000aa")
 
     def test_each_script_answers_help_with_stdin_held(self):
         for name in SCRIPTS:

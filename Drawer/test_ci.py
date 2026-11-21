@@ -50,6 +50,25 @@ class CiTests(unittest.TestCase):
                 self.assertRegex(pin, r"^[0-9A-Fa-f]{64}$")
 
 
+    # Defect: a red hub file showed only its last output line in the CI log, so a red run was undiagnosable.
+    # Injection: drop the if: failure() step or the tee from either job.
+    def test_each_job_keeps_the_smoke_output_and_reruns_each_red_file_verbosely_on_failure(self):
+        import yaml
+        doc = yaml.safe_load(CI.read_text(encoding="utf-8"))
+        smoke = harness_config.load(ROOT)["smoke"]["command"].replace("{python}", ".venv/bin/python -B")
+        for name, job in doc["jobs"].items():
+            with self.subTest(job=name):
+                steps = job["steps"]
+                tee = [i for i, s in enumerate(steps) if s.get("run", "").startswith(smoke)]
+                self.assertEqual(1, len(tee))
+                self.assertEqual("bash", steps[tee[0]]["shell"])  # pipefail: the smoke's exit code survives the pipe
+                self.assertRegex(steps[tee[0]]["run"], r"\|\s*tee smoke\.log")
+                rerun = steps[tee[0] + 1]  # the step right after the smoke
+                self.assertEqual("failure()", rerun["if"])
+                self.assertIn("smoke: HUB RED", rerun["run"])
+                self.assertIn("smoke.log", rerun["run"])
+                self.assertIn("-m unittest -v", rerun["run"])
+
     def test_the_workflow_reads_only_and_runs_only_the_offline_conform_checks(self):
         # A runner has no seat profile, no claude and no local .mcp.json: the full conform run and the untracked
         # settings check are red there, so settings runs as settings-sync --tracked.

@@ -64,7 +64,8 @@ def counts(hub: Path = HUB) -> list[tuple[str, int, int]]:
 def git(repo, *args) -> str:
     """stdout of one git call; '' on any failure, git missing too, so the watchdog loop never dies here."""
     try:
-        out = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+        out = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                             encoding="utf-8", errors="replace")
     except OSError:
         return ""
     return out.stdout.strip() if out.returncode == 0 else ""
@@ -94,7 +95,7 @@ def staged_files(repo: str) -> list[str] | None:
     """Each path the index adds, changes or renames to, unquoted (-z); None when git cannot say."""
     try:
         out = subprocess.run(["git", "-C", str(repo), "diff", "--cached", "--name-only", "-z", "--diff-filter=AMR"],
-                             capture_output=True, text=True)
+                             capture_output=True, encoding="utf-8", errors="replace")
     except OSError:
         return None
     return [f for f in out.stdout.split("\0") if f] if out.returncode == 0 else None
@@ -155,7 +156,8 @@ FAIL = subprocess.CompletedProcess([], 1, "", "")
 def run_git(repo, *args) -> subprocess.CompletedProcess:
     """One git call; FAIL when git cannot run."""
     try:
-        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                              encoding="utf-8", errors="replace")
     except OSError:
         return FAIL
 

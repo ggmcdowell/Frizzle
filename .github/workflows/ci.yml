@@ -30,8 +30,19 @@ jobs:
           git config --global user.email ci@example.invalid
       - name: Sync the environment
         run: uv sync
-      - name: Hub smoke
-        run: .venv/bin/python -B Drawer/smoke.py
+      - name: Hub smoke (output kept in smoke.log for the rerun below)
+        shell: bash
+        run: .venv/bin/python -B Drawer/smoke.py 2>&1 | tee smoke.log
+      - name: Full output of each red hub test file
+        if: failure()
+        shell: bash
+        run: |
+          # smoke.py prints one last line per red file; this runs each verbosely so the failing test and its message show
+          tr -d '\r' < smoke.log | sed -n 's/^smoke: HUB RED \([^:]*\):.*/\1/p' | while read -r f; do
+            echo "::group::$f"
+            .venv/bin/python -B -m unittest -v "$f" || true
+            echo "::endgroup::"
+          done
       - name: Tracked settings (a runner has no local .mcp.json or settings.local.json)
         run: .venv/bin/python -B Drawer/settings-sync.py --tracked
       - name: Harness conform (offline checks except settings; a runner has no seat and no claude)
@@ -70,8 +81,19 @@ jobs:
         run: uv sync
       - name: Write the Git Bash shims (.venv/bin/python and trash)
         run: .venv/Scripts/python.exe -B Drawer/runtime/seat.py shims
-      - name: Hub smoke
-        run: .venv/bin/python -B Drawer/smoke.py
+      - name: Hub smoke (output kept in smoke.log for the rerun below)
+        shell: bash
+        run: .venv/bin/python -B Drawer/smoke.py 2>&1 | tee smoke.log
+      - name: Full output of each red hub test file
+        if: failure()
+        shell: bash
+        run: |
+          # smoke.py prints one last line per red file; this runs each verbosely so the failing test and its message show
+          tr -d '\r' < smoke.log | sed -n 's/^smoke: HUB RED \([^:]*\):.*/\1/p' | while read -r f; do
+            echo "::group::$f"
+            .venv/bin/python -B -m unittest -v "$f" || true
+            echo "::endgroup::"
+          done
       - name: Tracked settings (a runner has no local .mcp.json or settings.local.json)
         run: .venv/bin/python -B Drawer/settings-sync.py --tracked
       - name: Harness conform (offline checks except settings; a runner has no seat and no claude)

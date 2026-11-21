@@ -1250,7 +1250,7 @@ def snapshot_with_cards(folder: Path, beyond_starter: bool = False) -> Path | No
 
 
 def sh_arg(path) -> str:
-    """A path as a Git Bash word: C:/x/y, quoted when it holds a space. POSIX prints it as it is."""
+    """A path as a Git Bash word: C:/x/y, quoted when it holds a space or another character the shell reads (a tilde in an 8.3 name). POSIX prints it as it is."""
     return shlex.quote(Path(path).as_posix()) if oscompat.WINDOWS else str(path)
 
 
