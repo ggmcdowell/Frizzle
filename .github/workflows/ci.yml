@@ -58,7 +58,7 @@ jobs:
           New-Item -ItemType Directory -Force $dir | Out-Null
           $zip = Join-Path $dir "gitleaks.zip"
           Invoke-WebRequest -Uri "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_windows_x64.zip" -OutFile $zip
-          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne "D29144DEFF3A68AA93CED33DDF84B7FDC26070ADD4AA0F4513094C8332AFC4E") { throw "gitleaks zip checksum mismatch" }
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne "D29144DEFF3A68AA93CED33DDDF84B7FDC26070ADD4AA0F4513094C8332AFC4E") { throw "gitleaks zip checksum mismatch" }
           Expand-Archive $zip -DestinationPath $dir -Force
           Add-Content -Path $env:GITHUB_PATH -Value $dir
       - name: Git identity for the test repos

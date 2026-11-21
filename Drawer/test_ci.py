@@ -1,4 +1,5 @@
 """The CI workflow runs the hub smoke command that harness.toml names, and the conform gate, on macOS and Windows."""
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -37,6 +38,16 @@ class CiTests(unittest.TestCase):
                 self.assertIn(needed, text)
         self.assertEqual(2, text.count("run: uv sync"))
         self.assertNotIn("e2e.sh", text.split("jobs:")[1])  # the paid run stays manual
+
+    # Defect: the gitleaks pin was 63 hex characters, so the Windows job threw a checksum mismatch on every run.
+    # Injection: drop one character of the pin.
+    def test_each_pinned_sha256_is_64_hex_characters(self):
+        text = CI.read_text(encoding="utf-8")
+        pins = re.findall(r'-Algorithm SHA256\)\.Hash -ne "([^"]*)"', text)
+        self.assertTrue(pins)
+        for pin in pins:
+            with self.subTest(pin=pin):
+                self.assertRegex(pin, r"^[0-9A-Fa-f]{64}$")
 
 
     def test_the_workflow_reads_only_and_runs_only_the_offline_conform_checks(self):
