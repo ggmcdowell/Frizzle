@@ -510,6 +510,17 @@ class RunTmpTests(unittest.TestCase):
         self.assertEqual([], self.trashed)
         self.assertTrue(outer.is_dir())
 
+    # Defect (incident 5a047699): off macOS the cache is the temp folder, so inside a land's run folder the smoke made a
+    # second run folder within it; the doubled depth passed git's git-dir limit on Windows. Injection: compare paths.
+    def test_a_run_inside_a_run_folder_off_macos_uses_it_too(self):
+        cfg = {"project": {"state_root": str(self.tmp / "state")}}
+        with patch.object(smoke.run_tmp, "TEMP_ROOT", None), patch.object(smoke.run_tmp.sys, "platform", "linux"),              patch.dict(os.environ, {k: str(self.tmp / "temp") for k in smoke.run_tmp.TEMP_VARS}),              patch.object(smoke.run_tmp.tempfile, "tempdir", None):
+            with smoke.run_tmp.run_folder(cfg) as env:
+                outer = env["TMPDIR"]
+                with patch.dict(os.environ, env), patch.object(smoke.run_tmp.tempfile, "tempdir", None):
+                    with smoke.run_tmp.run_folder(cfg) as inner:
+                        self.assertEqual(outer, inner["TMPDIR"])
+
     def test_a_killed_run_folder_is_trashed_by_the_next_run_and_a_live_one_stays(self):
         import subprocess
         import time

@@ -114,7 +114,9 @@ def run_folder(cfg):
     folder. Inside another run's folder: that folder, with no sweep and no trash."""
     parent = base(cfg)
     outer = os.environ.get("TMPDIR", "")
-    if outer and Path(outer).resolve().parent == parent.resolve():
+    # By name: off macOS base() sits under the temp folder, which inside a run is that run's folder, so the outer
+    # run's base is a parent of this one and a path compare nested a second run folder (incident 5a047699).
+    if outer and Path(outer).resolve().parent.name == parent.name:
         yield dict(os.environ)
         return
     for line in sweep(parent):
