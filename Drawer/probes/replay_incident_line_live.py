@@ -140,6 +140,7 @@ def replay(hub, product):
         env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home), flight_var.removesuffix("FLIGHT") + "MEM_DB": str(root / "mem.db"),
                flight_var.removesuffix("FLIGHT") + "MEM_EMBED": "off", flight_var: str(root / "flight")}  # <PREFIX>_ names
         env.pop(flight_var + "_ONESHOT", None)  # a card-run leg inherits a one-shot Flight's env (incident befb286b)
+        env.pop("CLAUDE_CONFIG_DIR", None)  # a seat with its own Claude folder sent the watchdog there (incident 30286e9e)
         dog = subprocess.Popen([sys.executable, "-B", str(fake / "Drawer" / "flight-watchdog.py"), "events",
                                 "--lock", "probe", "--step", str(STEP)], stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, text=True, env=env, cwd=fake)
