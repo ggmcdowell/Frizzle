@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "mem"))
 import mem  # noqa: E402
+import harness_config  # noqa: E402  (beside mem: mem puts Drawer on sys.path)
 
 MEM_DB, MEM_EMBED = mem.harness_config.env_name("MEM_DB"), mem.harness_config.env_name("MEM_EMBED")  # the hub's prefix
 import task_delivery  # noqa: E402  (beside mem: mem puts Drawer on sys.path)
@@ -44,7 +45,7 @@ class FakeEmbedder:
 
 class MemTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.m = mem.Mem(Path(self.tmp.name) / "hub.db", FakeEmbedder())
 
     def tearDown(self):
@@ -385,7 +386,7 @@ class RestateLintTest(unittest.TestCase):
             "owns it, and a missing lock is no proof.")
 
     def setUp(self):
-        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
         (self.tmp / "AGENTS.md").write_text(f"# Rules\n\n- {self.RULE}\n")
         self.m = mem.Mem(self.tmp / "hub.db", FakeEmbedder(on=False))
         self.m.rules_root = self.tmp
@@ -418,7 +419,7 @@ class ClaimTest(unittest.TestCase):
     """Claim columns, task_log and an atomic claim."""
 
     def setUp(self):
-        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
         self.path = self.tmp / "hub.db"
         self.m = mem.Mem(self.path, FakeEmbedder())
         self.addCleanup(self.m.db.close)
@@ -630,7 +631,7 @@ class ReadyRouteTest(unittest.TestCase):
     """get --follow, list --ready with chain, and checked route fields on add."""
 
     def setUp(self):
-        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
         self.m = mem.Mem(self.tmp / "hub.db", FakeEmbedder(on=False))
         self.addCleanup(self.m.db.close)
 
@@ -703,7 +704,7 @@ class CompleteTest(unittest.TestCase):
     """Mem.complete is the checked close; each refusal leaves the task as it was."""
 
     def setUp(self):
-        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
         self.m = mem.Mem(self.tmp / "hub.db", FakeEmbedder(on=False))
         self.addCleanup(self.m.db.close)
         self.task = self.m.add("task", "Lantern glow: wire the glow to dusk. Why: x. Done when: y.")["id"]
@@ -819,7 +820,7 @@ class EvidenceLabelTest(unittest.TestCase):
         self.assertEqual([], mem.unlabeled(""))
 
     def test_complete_refuses_an_unlabeled_claim_and_leaves_the_task_doing(self):
-        m = mem.Mem(Path(self.enterContext(tempfile.TemporaryDirectory())) / "hub.db", FakeEmbedder(on=False))
+        m = mem.Mem(Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True))) / "hub.db", FakeEmbedder(on=False))
         self.addCleanup(m.db.close)
         task = m.add("task", "Boot fix: stop the boot crash. Why: x. Done when: y.")["id"]
         claim = m.claim(task, "session-a")["claim_id"]
@@ -838,7 +839,7 @@ class LivenessTest(unittest.TestCase):
     """Interrupt and reap act only on a claim whose session has no live sessions row; notes."""
 
     def setUp(self):
-        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
         self.home = self.tmp / "home"
         sessions = self.home / ".claude" / "sessions"
         sessions.mkdir(parents=True)
@@ -846,8 +847,8 @@ class LivenessTest(unittest.TestCase):
         gone = subprocess.Popen([sys.executable, "-c", "pass"])
         gone.wait()  # a pid that no longer runs
         (sessions / f"{gone.pid}.json").write_text(json.dumps({"pid": gone.pid, "sessionId": "session-gone"}))
-        self.env = {**os.environ, "HOME": str(self.home), MEM_DB: str(self.tmp / "hub.db"), MEM_EMBED: "off"}
-        self.enterContext(mock.patch.dict(os.environ, {"HOME": str(self.home)}))
+        self.env = {**os.environ, **harness_config.home_vars(self.home), MEM_DB: str(self.tmp / "hub.db"), MEM_EMBED: "off"}
+        self.enterContext(mock.patch.dict(os.environ, harness_config.home_vars(self.home)))
         self.m = mem.Mem(self.tmp / "hub.db", FakeEmbedder())
         self.addCleanup(self.m.db.close)
         self.live = self.m.add("task", "Live claim: keep it. Why: x. Done when: y.")
@@ -972,7 +973,7 @@ class JsonContractTest(unittest.TestCase):
     """Every verb takes --json and prints one compact JSON line; a MemError is {"error"}, exit 2."""
 
     def setUp(self):
-        tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
         self.env = {**os.environ, MEM_DB: str(tmp / "hub.db"), MEM_EMBED: "off"}
 
     def run_mem(self, *argv):
@@ -1040,7 +1041,7 @@ class EnvPrefixTest(unittest.TestCase):
                               env={**base, **env})
 
     def test_the_prefixed_name_selects_the_db(self):
-        tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
         added = self.cli({MEM_DB: str(tmp / "chosen.db"), MEM_EMBED: "off"}, "add", "--kind", "fact", "--new", "--body",
                          "A fact for the chosen store.")
         self.assertEqual(0, added.returncode, added.stderr)
@@ -1049,7 +1050,7 @@ class EnvPrefixTest(unittest.TestCase):
         self.assertEqual("A fact for the chosen store.", store.get(added.stdout.split()[0])["body"])
 
     def test_a_bare_name_with_no_prefixed_one_is_refused_and_opens_no_db(self):
-        tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
         for bare in ("MEM_DB", "MEM_EMBED"):
             with self.subTest(bare):
                 env = {"MEM_EMBED": "off", MEM_DB: str(tmp / "set.db")} if bare == "MEM_EMBED" else {
@@ -1065,9 +1066,9 @@ class LiveGuardTest(unittest.TestCase):
         # A watchdog test once ran mem with no MEM_DB and opened a record in the live
         # memory. Under a test run, mem with no MEM_DB writes a scratch DB per run, never the live one, and
         # opening the live DB fails. The live DB here is a fake one under a scratch HOME.
-        tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
         env = {k: v for k, v in os.environ.items() if k != MEM_DB}
-        env.update({"HOME": str(tmp), MEM_EMBED: "off"})
+        env.update({**harness_config.home_vars(tmp), MEM_EMBED: "off"})
         live = Path(LIVE_DB.replace("~", str(tmp), 1))
         run = mem.test_run()
         self.assertIsNotNone(run)
@@ -1083,7 +1084,7 @@ class LiveGuardTest(unittest.TestCase):
         self.assertNotEqual(0, named.returncode)
         self.assertIn("LiveUnderTest", named.stderr)
         self.assertFalse(live.exists(), "a test run wrote the live mem database")
-        with mock.patch.dict(os.environ, {"HOME": str(tmp)}), self.assertRaises(mem.LiveUnderTest):
+        with mock.patch.dict(os.environ, harness_config.home_vars(tmp)), self.assertRaises(mem.LiveUnderTest):
             mem.Mem(live, FakeEmbedder())
 
 
@@ -1093,8 +1094,8 @@ class LiveCheckoutGuardTest(unittest.TestCase):
     before land, with no snapshot. The live DB and the live hub here sit under a scratch HOME."""
 
     def setUp(self):
-        self.home = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.enterContext(mock.patch.dict(os.environ, {"HOME": str(self.home)}))
+        self.home = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True)))
+        self.enterContext(mock.patch.dict(os.environ, harness_config.home_vars(self.home)))
         os.environ.pop("MEM_LIVE_WRITE", None)
         self.enterContext(mock.patch.object(mem, "test_run", return_value=None))
         self.live = Path(LIVE_DB.replace("~", str(self.home), 1))
@@ -1175,7 +1176,7 @@ class LiveHubTest(unittest.TestCase):
 
     def test_a_task_worktree_names_its_main_clone(self):
         marker = mem.harness_config.load(mem.harness_config.hub_root(mem.HERE))["project"]["marker_file"]
-        tmp = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        tmp = Path(self.enterContext(tempfile.TemporaryDirectory(ignore_cleanup_errors=True))).resolve()
         main, wt, plain = tmp / "AnyName", tmp / "AnyName_wt" / "t1", tmp / "plain"
         env = mem.harness_config.git_env()
         git = lambda *a: subprocess.run(["git", *a], check=True, capture_output=True, env=env)  # noqa: E731
@@ -1194,7 +1195,7 @@ class LiveHubTest(unittest.TestCase):
 
 class SeedAndReembedTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.emb = FakeEmbedder(on=False)
         self.m = mem.Mem(Path(self.tmp.name) / "hub.db", self.emb)
@@ -1340,7 +1341,7 @@ class LostDbTest(unittest.TestCase):
     IMPORT = ".venv/bin/python -B Drawer/mem/mem.py import "
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         base = Path(self.tmp.name)
         self.db, self.export, self.snaps = base / "hub.db", base / "export", base / "mem-snapshots"
         self.cfg = {**mem.config(), "export_dir": str(self.export)}
@@ -1369,7 +1370,7 @@ class LostDbTest(unittest.TestCase):
         self.assertEqual(0, code)
         lines = [ln for ln in out.splitlines() if "Restore:" in ln]
         self.assertEqual(1, len(lines), out)
-        self.assertIn(self.IMPORT + str(self.export / "cards.jsonl"), lines[0])
+        self.assertIn(self.IMPORT + (self.export / "cards.jsonl").as_posix(), lines[0])
 
     def test_a_missing_db_with_only_a_snapshot_names_the_copy(self):
         self.backup()
@@ -1380,7 +1381,7 @@ class LostDbTest(unittest.TestCase):
         _, out, _ = self.cli("digest")
         lines = [ln for ln in out.splitlines() if "Restore:" in ln]
         self.assertEqual(1, len(lines), out)
-        self.assertIn(f"cp {snap} {self.db}", lines[0])
+        self.assertIn(f"cp {Path(snap).as_posix()} {self.db.as_posix()}", lines[0])
 
     def test_a_fresh_clone_with_no_backup_prints_no_restore_line(self):
         _, out, _ = self.cli("digest")
@@ -1401,7 +1402,7 @@ class LostDbTest(unittest.TestCase):
         self.assertEqual(1, len(err), err)
         err = err[0]
         self.assertIn("file is not a database", err)
-        self.assertIn(f"mv {self.db} {self.db}.bad; {self.IMPORT}{self.export / 'cards.jsonl'}", err)
+        self.assertIn(f"mv {self.db.as_posix()} {self.db.as_posix()}.bad; {self.IMPORT}{(self.export / 'cards.jsonl').as_posix()}", err)
 
     def test_a_locked_db_is_not_called_corrupt(self):
         with mock.patch.object(mem, "Mem", side_effect=mem.sqlite3.OperationalError("database is locked")):
@@ -1415,7 +1416,7 @@ class LostDbTest(unittest.TestCase):
         code, _, err = self.cli("nightly")
         self.assertEqual(2, code)
         self.assertEqual(before, exported.read_text())
-        self.assertIn(self.IMPORT + str(exported), err)
+        self.assertIn(self.IMPORT + Path(exported).as_posix(), err)
 
     def test_export_with_an_empty_db_keeps_a_non_empty_export(self):
         self.backup()
@@ -1440,7 +1441,7 @@ class LostDbTest(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertTrue(out.startswith("MEMORY DB HOLDS ONLY THE STARTER CARDS, but a backup holds more. Restore: "), out)
         self.assertEqual(1, len([ln for ln in out.splitlines() if "Restore:" in ln]), out)
-        self.assertIn(self.IMPORT + str(exported), out)
+        self.assertIn(self.IMPORT + Path(exported).as_posix(), out)
 
     def test_nightly_and_export_of_a_seeded_db_keep_a_bigger_export(self):
         exported = self.starter_only_with_a_bigger_backup()
@@ -1448,7 +1449,7 @@ class LostDbTest(unittest.TestCase):
         for verb in ("nightly", "export"):
             code, _, err = self.cli(verb)
             self.assertEqual(2, code, verb)
-            self.assertIn(self.IMPORT + str(exported), err)
+            self.assertIn(self.IMPORT + Path(exported).as_posix(), err)
             self.assertIn("only the starter cards", err)
             self.assertEqual(before, exported.read_text(), verb)
 
@@ -1477,7 +1478,7 @@ class IncidentLogGuardTest(unittest.TestCase):
         real_file = real / "incidents.jsonl"
         before = real_file.read_bytes() if real_file.exists() else None
         real_load = harness_config.load
-        with tempfile.TemporaryDirectory() as live:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as live:
             def load(*a, **k):  # the run's config names a scratch live state_root: a write there is a live write
                 cfg = real_load(*a, **k)
                 return {**cfg, "project": {**cfg["project"], "state_root": live}}

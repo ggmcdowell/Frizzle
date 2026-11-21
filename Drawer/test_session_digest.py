@@ -7,7 +7,8 @@ import tempfile
 import unittest
 
 SCRIPT = Path(__file__).resolve().with_name("session_digest.py")
-PY = ".venv/" + ("Scripts/python.exe" if sys.platform == "win32" else "bin/python") + " -B"
+# Printed commands name .venv/bin/python on every platform: on Windows it is a shim Git Bash runs (Drawer/oscompat.py).
+PY = ".venv/bin/python -B"
 
 
 class HelpTests(unittest.TestCase):

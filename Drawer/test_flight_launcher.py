@@ -11,7 +11,11 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import oscompat  # noqa: E402
 
 HUB = Path(__file__).resolve().parent.parent
 LAUNCHER = HUB / "Flight.command"
@@ -35,14 +39,14 @@ class FlightLauncherTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def stub_claude(self):
-        (self.bin / "claude").write_text(STUB)
+        (self.bin / "claude").write_text(STUB, newline="\n")
         (self.bin / "claude").chmod(0o755)
 
     def set_up(self, venv=True, bound=True):
         if venv:
             python = self.hub / ".venv/bin/python"
             python.parent.mkdir(parents=True)
-            python.write_text("#!/bin/sh\n")
+            python.write_text("#!/bin/sh\n", newline="\n")
             python.chmod(0o755)
         if bound:
             subprocess.run(["git", "-C", str(self.hub), "config", "hub.bound", "true"], check=True)
@@ -50,9 +54,28 @@ class FlightLauncherTest(unittest.TestCase):
     def launch(self, *args):
         # Started from another folder, as Finder does. The PATH holds the stub folder and the system tools only.
         env = {"PATH": f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin", "HOME": self.tmp.name, "STUB_OUT": str(self.out)}
-        done = subprocess.run([str(self.hub / "Flight.command"), *args], cwd=self.tmp.name, env=env, capture_output=True,
+        argv = [str(self.hub / "Flight.command"), *args]
+        if oscompat.WINDOWS:
+            # A Windows process cannot run the extensionless script: Git for Windows' sh runs it (Flight.cmd does the
+            # same). Its tools need the system folder, and git must resolve for the hub.bound check.
+            env["SYSTEMROOT"] = os.environ.get("SYSTEMROOT", r"C:\Windows")
+            env["PATH"] += os.pathsep + str(Path(shutil.which("git")).parent)
+            argv.insert(0, oscompat.git_shell("sh"))
+        done = subprocess.run(argv, cwd=self.tmp.name, env=env, capture_output=True,
                               text=True, stdin=subprocess.DEVNULL, timeout=30)
-        return done, (self.out.read_text().strip().split("|") if self.out.exists() else None)
+        return done, self.seen(self.out.read_text().strip().split("|") if self.out.exists() else None)
+
+    def where(self):
+        """The hub folder as the stub's $PWD prints it. Git Bash reports C:/x as /c/x and the temp folder as /tmp;
+        cygpath, Git for Windows' own converter, gives the path back as Windows spells it."""
+        return str(self.hub)
+
+    def seen(self, row):
+        if oscompat.WINDOWS and row and row[2].startswith("/"):
+            cygpath = Path(oscompat.git_shell("sh")).with_name("cygpath.exe")
+            row[2] = subprocess.run([str(cygpath), "-w", row[2]], capture_output=True, text=True, check=True).stdout.strip()
+            row[2] = str(Path(row[2]).resolve())
+        return row
 
     def test_the_tracked_file_is_executable(self):
         mode = subprocess.run(["git", "ls-files", "-s", "Flight.command"], cwd=HUB, capture_output=True, text=True,
@@ -64,19 +87,19 @@ class FlightLauncherTest(unittest.TestCase):
         self.set_up()
         done, seen = self.launch()
         self.assertEqual(0, done.returncode, done.stderr)
-        self.assertEqual(["", "1", str(self.hub), "1"], seen)  # the marker flight-hooks.py seat reads
+        self.assertEqual(["", "1", self.where(), "1"], seen)  # the marker flight-hooks.py seat reads
 
     def test_arguments_go_to_claude(self):
         self.stub_claude()
         self.set_up()
         done, seen = self.launch("--model", "opus", "/flight")
         self.assertEqual(0, done.returncode, done.stderr)
-        self.assertEqual(["--model opus /flight", "1", str(self.hub), "1"], seen)
+        self.assertEqual(["--model opus /flight", "1", self.where(), "1"], seen)
 
     def test_a_hub_with_no_environment_starts_setup_with_plain_tools(self):
         self.stub_claude()
         self.set_up(venv=False)
-        self.assertEqual(["/setup", "unset", str(self.hub), "unset"], self.launch()[1])
+        self.assertEqual(["/setup", "unset", self.where(), "unset"], self.launch()[1])
 
     def test_a_windows_environment_counts_as_set_up(self):
         # uv puts the interpreter at .venv/Scripts/python.exe on Windows; Git has no executable bit there.
@@ -85,7 +108,7 @@ class FlightLauncherTest(unittest.TestCase):
         python = self.hub / ".venv/Scripts/python.exe"
         python.parent.mkdir(parents=True)
         python.write_text("MZ\n")
-        self.assertEqual(["", "1", str(self.hub), "1"], self.launch()[1])
+        self.assertEqual(["", "1", self.where(), "1"], self.launch()[1])
 
     def test_flight_cmd_starts_flight_command_in_git_for_windows_bash(self):
         cmd = (HUB / "Flight.cmd").read_bytes()
@@ -100,7 +123,7 @@ class FlightLauncherTest(unittest.TestCase):
     def test_a_hub_that_setup_has_not_bound_starts_setup(self):
         self.stub_claude()
         self.set_up(bound=False)
-        self.assertEqual(["/setup", "unset", str(self.hub), "unset"], self.launch()[1])
+        self.assertEqual(["/setup", "unset", self.where(), "unset"], self.launch()[1])
 
     def test_no_claude_names_the_install_and_starts_nothing(self):
         self.set_up()

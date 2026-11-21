@@ -16,6 +16,10 @@ from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / "long-job.py"
+sys.path.insert(0, str(HERE))
+import oscompat  # noqa: E402
+
+KILL = getattr(signal, "SIGKILL", signal.SIGTERM)  # Windows: os.kill ends the process either way
 
 
 def load_module():
@@ -27,9 +31,10 @@ def load_module():
 
 class LongJobTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        # ignore_cleanup_errors: on Windows a job the test killed may leave a child that holds its log a moment.
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.home = Path(self.tmp.name)
-        self.env = dict(os.environ, HOME=str(self.home))
+        self.env = dict(os.environ, **load_module().harness_config.home_vars(self.home))
         root = load_module().harness_config.load(HERE.parent)["project"]["state_root"]
         self.jobs = self.home / os.path.relpath(os.path.expanduser(root), os.path.expanduser("~")) / "jobs"
         self.pids = []
@@ -39,7 +44,7 @@ class LongJobTest(unittest.TestCase):
             if not isinstance(pid, int):
                 continue
             try:
-                os.kill(pid, signal.SIGKILL)
+                oscompat.kill_tree(pid) if oscompat.WINDOWS else os.kill(pid, KILL)
             except OSError:
                 pass
         self.tmp.cleanup()
@@ -74,17 +79,17 @@ class LongJobTest(unittest.TestCase):
 
     def test_job_outlives_its_caller(self):
         mark = self.home / "mark"
-        job = f"import time, pathlib; time.sleep(3); pathlib.Path({str(mark)!r}).write_text('ok')"
+        job = f"import time, pathlib; time.sleep(3); pathlib.Path({mark.as_posix()!r}).write_text('ok')"
         # The caller (a worker stand-in) starts the job, then lives on in its own process group; kill the
         # whole group as a dying worker's tree would be killed.
         start = [sys.executable, "-B", str(SCRIPT), "start", "--name", "outlive", "--", sys.executable, "-c", job]
-        caller = subprocess.Popen(["sh", "-c", '"$@"; exec sleep 60', "caller", *start], cwd=HERE.parent,
+        caller = subprocess.Popen([oscompat.git_shell("sh"), "-c", '"$@"; exec sleep 60', "caller", *start], cwd=HERE.parent,
                                   env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                  start_new_session=True)
+                                  **oscompat.popen_group())
         self.pids.append(caller.pid)
         line = self.until("outlive", "running")
         self.pids.append(line["runner_pid"])
-        os.killpg(caller.pid, signal.SIGKILL)
+        oscompat.kill_tree(caller.pid)
         caller.wait(timeout=10)
         done = self.until("outlive", "done", limit=30)
         self.assertEqual(done["exit_code"], 0)
@@ -94,7 +99,7 @@ class LongJobTest(unittest.TestCase):
 
     def test_second_start_does_not_rerun(self):
         count = self.home / "count"
-        job = f"import pathlib; p = pathlib.Path({str(count)!r}); p.write_text(p.read_text() + 'x' if p.exists() else 'x')"
+        job = f"import pathlib; p = pathlib.Path({count.as_posix()!r}); p.write_text(p.read_text() + 'x' if p.exists() else 'x')"
         first = self.cli("start", "--name", "once", "--", sys.executable, "-c", job)
         self.assertEqual(first.returncode, 0, first.stderr)
         self.until("once", "done")
@@ -136,7 +141,7 @@ class LongJobTest(unittest.TestCase):
 
     def test_dead_runner_reads_lost(self):
         line = self.start_running("doomed", sys.executable, "-c", "import time; time.sleep(60)")
-        os.kill(line["runner_pid"], signal.SIGKILL)
+        os.kill(line["runner_pid"], KILL)
         self.until("doomed", "lost")
         out = self.cli("wait", "--name", "doomed")
         self.assertEqual(out.returncode, load_module().EXIT_LOST)

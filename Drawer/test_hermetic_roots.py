@@ -20,6 +20,9 @@ import harness_config  # noqa: E402
 import mem  # noqa: E402
 
 HUB = HERE.parent
+# The name the git hooks look the interpreter up by on PATH: python3 on POSIX; the Windows venv has only python.exe,
+# which the hooks take after python3.
+PYNAME = "python" if os.name == "nt" else "python3"
 CHILD = ("import sys; sys.path[:0] = sys.argv[1:3]; import harness_config, mem; "
          "c = harness_config.load(sys.argv[3]); "
          "print(harness_config.path(c['project']['state_root'])); print(harness_config.path(c['project']['config_root'])); "
@@ -65,8 +68,8 @@ class HermeticRootsTest(unittest.TestCase):
         self.assertEqual([os.path.dirname(sys.executable), "/usr/bin"], env["PATH"].split(os.pathsep))
         again = harness_config.test_home(env, "/nonexistent-home")
         self.assertEqual(env["PATH"], again["PATH"], "a nested run adds the folder once")
-        found = shutil.which("python3")
-        self.assertTrue(found, "no python3 on this test run's PATH")
+        found = shutil.which(PYNAME)
+        self.assertTrue(found, f"no {PYNAME} on this test run's PATH")
         ok = subprocess.run([found, "-c", "import sys; sys.exit(sys.version_info < (3, 12))"]).returncode
         self.assertEqual(0, ok, f"{found} is older than Python 3.12")
 
@@ -75,11 +78,15 @@ class HermeticRootsTest(unittest.TestCase):
         # imports testgit must still find its own interpreter as python3, once, ahead of an old one.
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            fake = Path(tmp) / "python3"
-            fake.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-            fake.chmod(0o755)
+            if os.name == "nt":  # PATHEXT finds a .cmd stand-in, not an extensionless script
+                fake = Path(tmp) / "python.cmd"
+                fake.write_text("@exit /b 1\r\n", encoding="utf-8")
+            else:
+                fake = Path(tmp) / "python3"
+                fake.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+                fake.chmod(0o755)
             code = ("import sys, os, shutil; sys.path.insert(0, sys.argv[1]); import testgit; "
-                    "print(os.environ['PATH']); print(shutil.which('python3'))")
+                    f"print(os.environ['PATH']); print(shutil.which({PYNAME!r}))")
             env = {"PATH": os.pathsep.join([tmp, "/usr/bin", "/bin"]), "HOME": tmp}
             out = subprocess.run([sys.executable, "-B", "-c", code, str(HERE)], capture_output=True, text=True,
                                  check=True, env=env).stdout.split("\n")
@@ -93,13 +100,14 @@ class HermeticRootsTest(unittest.TestCase):
         # isolates them (NO_LOCAL_VAR=1, a temp HOME, the test interpreter first on PATH).
         probe = (
             "import os, shutil, sys, unittest\n"
+            f"PYNAME = {PYNAME!r}\n"
             f"sys.path.insert(0, {str(HERE)!r})\n"
             "import harness_config\n"
             "class T(unittest.TestCase):\n"
             "    def test_it(self):\n"
             "        print('SEEN', os.environ.get('HARNESS_TEST_NO_LOCAL_PROBE'), os.environ.get(harness_config.NO_LOCAL_VAR),\n"
             "              os.environ['HOME'], os.environ.get(harness_config.REAL_HOME_VAR),\n"
-            "              os.path.dirname(shutil.which('python3')) == os.path.dirname(sys.executable))\n"
+            "              os.path.dirname(shutil.which(PYNAME)) == os.path.dirname(sys.executable))\n"
             "if __name__ == '__main__':\n"
             "    unittest.main()\n")
         with tempfile.TemporaryDirectory() as tmp:

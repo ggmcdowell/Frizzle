@@ -55,6 +55,12 @@ class TaskWorktreeTests(unittest.TestCase):
         own = mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": OWN_SESSION})
         own.start()
         self.addCleanup(own.stop)
+        # A session row is read from CLAUDE_CONFIG_DIR when set, else the home folder faked above: a set one
+        # (a seat's own profile) would point the liveness read at the real sessions folder.
+        config = mock.patch.dict(os.environ)
+        config.start()
+        self.addCleanup(config.stop)
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
         self.venv_marker = self.repo / ".venv/marker.txt"
         # The installed hub is the same for every case: build it once, then copy it.
         if not _copy_template("task-worktree", base):
@@ -895,8 +901,10 @@ class OwnCleanupTests(unittest.TestCase):
     def test_trash_with_no_trash_command_keeps_the_folder(self) -> None:
         folder = self.tmp / "0a1b2c3d-keep"
         folder.mkdir()
+        # Windows falls back to the Recycle Bin; the box with no trash command at all is the POSIX one.
         with mock.patch.object(policy.shutil, "which", return_value=None), \
                 mock.patch.object(policy.os, "access", return_value=False), \
+                mock.patch.object(policy.oscompat, "WINDOWS", False), \
                 self.assertRaisesRegex(policy.PolicyError, "no trash command"):
             self.real_trash(folder)
         self.assertTrue(folder.is_dir())

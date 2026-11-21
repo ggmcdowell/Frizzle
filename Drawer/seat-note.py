@@ -19,7 +19,7 @@ CD = re.compile(r"(?:^|[;&|(\n]|\bthen|\bdo)\s*cd(?:\s|$)")
 NOTE = (
     "seat-note: the shell now sits in %s, outside the hub root %s. From here a Workflow call by name "
     "fails 'not found' before any hook can refuse it. Call a hub workflow by "
-    "scriptPath: %s/.claude/workflows/<name>.js (saved: %s). Or cd %s first."
+    "scriptPath: %s (saved: %s). Or cd %s first."
 )
 
 
@@ -43,7 +43,8 @@ def note(event):
     here = os.path.join(cwd, ".claude", "workflows")
     if not names or all(os.path.isfile(os.path.join(here, n + ".js")) for n in names):
         return None
-    return NOTE % (cwd, HUB_ROOT, HUB_ROOT, ", ".join(names), HUB_ROOT)
+    script = os.path.join(HUB_ROOT, ".claude", "workflows", "<name>.js")
+    return NOTE % (cwd, HUB_ROOT, script, ", ".join(names), HUB_ROOT)
 
 
 def main():

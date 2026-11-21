@@ -71,8 +71,8 @@ class ProductReviewDiffTests(unittest.TestCase):
         self.commit("unit.gd", "var hp = 12\n")
         found = self.build()
         head = git(self.repo, "rev-parse", "HEAD")
-        self.assertEqual((found["repo"], found["head"], found["base"], found["files"]),
-                         (str(self.repo), head, git(self.repo, "rev-parse", "origin/main"), ["unit.gd"]))
+        self.assertEqual((Path(found["repo"]), found["head"], found["base"], found["files"]),
+                         (self.repo, head, git(self.repo, "rev-parse", "origin/main"), ["unit.gd"]))
         diff = Path(found["diffPath"])
         self.assertEqual(diff, self.state / "review" / (head[:12] + ".diff"))
         self.assertIn("+var hp = 12", diff.read_text(encoding="utf-8"))
@@ -160,7 +160,7 @@ class ProductReviewDiffTests(unittest.TestCase):
                                "[diff]\n\tsubmodule = log\n" % attrs.as_posix(), encoding="utf-8")
         self.assertNotEqual(git(self.repo, "diff", "origin/main", "HEAD"), default)
         found = review_diff.build(self.repo / "src", self.state)
-        self.assertEqual((found["hash"], found["repo"]), (plain, str(self.repo)))
+        self.assertEqual((found["hash"], Path(found["repo"])), (plain, self.repo))
         (self.repo / ".git" / "info").mkdir(exist_ok=True)
         (self.repo / ".git" / "info" / "attributes").write_text("*.gd diff=z\n", encoding="utf-8")
         self.config.write_text("[diff \"z\"]\n\txfuncname = ^(.*)$\n", encoding="utf-8")

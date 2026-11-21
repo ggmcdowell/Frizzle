@@ -14,11 +14,12 @@ from pathlib import Path
 
 HUB = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HUB / "Drawer"))
+import oscompat  # noqa: E402
 import testgit  # noqa: E402
 
 testgit.arm()  # no git template in any fixture repo
 GIT = shutil.which("git")
-BASE_PATH = os.pathsep.join(p for p in {os.path.dirname(GIT), "/usr/bin", "/bin"})
+BASE_PATH = testgit.system_path()
 
 
 class ProductHooks(unittest.TestCase):
@@ -63,6 +64,15 @@ class ProductHooks(unittest.TestCase):
         if check and out.returncode:
             self.fail(f"git {' '.join(args)} exit {out.returncode}: {out.stdout}{out.stderr}")
         return out
+
+    def path_seen(self):
+        """The folders of the PATH a hook echoed. Git's sh writes them as POSIX paths joined by colons: on Windows
+        cygpath (beside sh.exe) turns them into the Windows paths the fixture folders have."""
+        text = (self.repo / ".git/path-seen").read_text().strip()
+        if oscompat.WINDOWS:
+            cygpath = Path(oscompat.git_shell("sh")).with_name("cygpath.exe")
+            text = subprocess.run([str(cygpath), "-w", "-p", text], capture_output=True, text=True, check=True).stdout.strip()
+        return text.split(os.pathsep)
 
     def gate_command(self, value):
         (self.hub / "harness.local.toml").write_text(f'[product]\ngate_command = "{value}"\n')
@@ -144,7 +154,7 @@ class ProductHooks(unittest.TestCase):
         (self.repo / "a.txt").write_text("a\n")
         self.git("add", "a.txt")
         self.assertEqual(self.git("commit", "-q", "-m", "a", check=False).returncode, 0)
-        first = (self.repo / ".git/path-seen").read_text().split(os.pathsep)[0]
+        first = self.path_seen()[0]
         self.assertEqual(os.path.realpath(self.hub / ".venv/bin"), os.path.realpath(first))
 
     def test_the_hub_scripts_folder_follows_the_bin_folder_on_path(self):
@@ -155,7 +165,7 @@ class ProductHooks(unittest.TestCase):
         (self.repo / "a.txt").write_text("a\n")
         self.git("add", "a.txt")
         self.assertEqual(self.git("commit", "-q", "-m", "a", check=False).returncode, 0)
-        seen = [os.path.realpath(p) for p in (self.repo / ".git/path-seen").read_text().strip().split(os.pathsep)[:2]]
+        seen = [os.path.realpath(p) for p in self.path_seen()[:2]]
         self.assertEqual([os.path.realpath(self.hub / ".venv/bin"), os.path.realpath(self.hub / ".venv/Scripts")], seen)
 
     # Defect: a Windows checkout has no executable bit, so test -x skipped the repo hook with no word.
@@ -170,7 +180,9 @@ class ProductHooks(unittest.TestCase):
         self.git("add", "a.txt")
         self.assertEqual(self.git("commit", "-q", "-m", "a", check=False).returncode, 0)
         self.assertEqual("ran\n", (self.repo / ".git/pre-commit-ran").read_text())
-        subprocess.run([str(self.hub / "Drawer/product-hooks/post-merge")], cwd=self.repo, env=self.env, check=True)
+        # Windows runs no shebang: Git for Windows' sh runs the hook, as git does.
+        shell = [oscompat.git_shell("sh")] if oscompat.WINDOWS else []
+        subprocess.run([*shell, str(self.hub / "Drawer/product-hooks/post-merge")], cwd=self.repo, env=self.env, check=True)
         self.assertEqual("ran\n", (self.repo / ".git/post-merge-ran").read_text())
 
     def test_a_python_shebang_repo_hook_runs_under_the_hub_python(self):

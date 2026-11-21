@@ -52,7 +52,7 @@ class SeatNote(unittest.TestCase):
         reply = json.loads(hook(WORKER_CD))["hookSpecificOutput"]
         self.assertEqual("PostToolUse", reply["hookEventName"])
         self.assertIn(ART, reply["additionalContext"])
-        self.assertIn(os.path.join(HUB, ".claude", "workflows") + "/<name>.js", reply["additionalContext"])
+        self.assertIn(os.path.join(HUB, ".claude", "workflows", "<name>.js"), reply["additionalContext"])
         self.assertIn("risky-review", reply["additionalContext"])
 
     def test_a_folder_that_holds_the_saved_workflows_and_a_call_with_no_cd_stay_silent(self):

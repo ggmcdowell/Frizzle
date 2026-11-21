@@ -35,6 +35,11 @@ SOURCES = ("project-gate.py", "doc-gate.py", "gatelib.py", "git_guard.py", "rule
            "harness_config.py", "oscompat.py", "product_worktree.py")
 OWN = "aaaaaaaa-1111-4111-8111-111111111111"
 LONG = "a-long-folder-name-so-each-path-in-a-deny-reason-runs-past-its-clip"
+if os.name == "nt":
+    # Windows: LONG nests four times in one fixture path, and git cannot make a folder past MAX_PATH; a smoke run's
+    # temp folder is already deep. Keep LONG as long as the temp folder leaves room, never under 24 characters
+    # (so "unmerged-" + LONG still runs past the 32-character clip).
+    LONG = LONG[:max(24, min(len(LONG), (190 - len(tempfile.gettempdir())) // 4))]
 
 
 def load(name, path):
@@ -48,7 +53,8 @@ class DrivenRefusals(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory(prefix="hub-deny-reasons-")
-        root = os.path.join(os.path.realpath(cls.tmp.name), LONG, LONG)
+        # Windows: git cannot make a .git/worktrees folder past MAX_PATH, so the root nests LONG once, not twice.
+        root = os.path.join(os.path.realpath(cls.tmp.name), *([LONG] if os.name == "nt" else [LONG, LONG]))
         cls.hub, cls.product = os.path.join(root, "hub"), os.path.join(root, "product")
         home, origin = os.path.join(root, "home"), os.path.join(root, "origin.git")
         drawer = os.path.join(cls.hub, "Drawer")
@@ -64,7 +70,9 @@ class DrivenRefusals(unittest.TestCase):
         with open(os.path.join(cls.hub, ".gitignore"), "w", encoding="utf-8") as fh:
             fh.write("/harness.local.toml\n*.log\n")
         empty = os.path.join(root, "empty.gitconfig")
-        open(empty, "w").close()
+        with open(empty, "w", encoding="utf-8") as fh:
+            if os.name == "nt":  # the deep folders pass MAX_PATH (260): git needs core.longpaths to write there
+                fh.write("[core]\n\tlongpaths = true\n")
         cls.env = {"CLAUDE_PROJECT_DIR": cls.hub, "DOC_GATE": "dry", "PYTHONDONTWRITEBYTECODE": "1",
                    "HOME": home, "USERPROFILE": home, "PYTHONPATH": HERE, "PATH": os.environ.get("PATH", ""),
                    "GIT_CONFIG_GLOBAL": empty, "GIT_CONFIG_SYSTEM": empty, **testgit.ENV}
@@ -111,14 +119,15 @@ class DrivenRefusals(unittest.TestCase):
     def cases(self):
         """(class, payload, the problem phrase its reason must carry)."""
         bash = lambda command, cwd=None: self.event("Bash", cwd, command=command)  # noqa: E731
+        peer = self.peer.replace(os.sep, "/")  # a shell command line holds slashes; a backslash is an escape there
         write = lambda path: self.event("Write", None, file_path=path, content="x\n")  # noqa: E731
         return (
             ("force push", bash("git push -f origin main"), "force push to main"),
             ("reset --hard on main", bash("git reset --hard origin/main", self.hub), "reset --hard on main"),
-            ("rm of a peer folder", bash("rm -rf %s/build/%s" % (self.peer, LONG)), "delete guard refused (SAF-4)"),
-            ("worktree remove", bash("git worktree remove %s" % self.peer), "raw git worktree remove"),
-            ("git clean outside own tree", bash("git -C %s clean -xdf" % self.peer), "git clean"),
-            ("find -delete outside own tree", bash("find %s/build -delete" % self.peer), "find:"),
+            ("rm of a peer folder", bash("rm -rf %s/build/%s" % (peer, LONG)), "delete guard refused (SAF-4)"),
+            ("worktree remove", bash("git worktree remove %s" % peer), "raw git worktree remove"),
+            ("git clean outside own tree", bash("git -C %s clean -xdf" % peer), "git clean"),
+            ("find -delete outside own tree", bash("find %s/build -delete" % peer), "find:"),
             ("branch -D unmerged", bash("git branch -D " + self.unmerged, self.hub), "not on origin/main"),
             ("branch -D not own", bash("git branch -D " + self.unowned, self.hub), "no id of this session"),
             ("pkill", bash("pkill -f node"), "kill by name"),

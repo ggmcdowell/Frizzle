@@ -204,12 +204,13 @@ class SettingsSyncTests(unittest.TestCase):
         self.assertEqual(["Workflow", "Bash(git *)", "Bash(.venv/bin/python *)", "Bash(uv *)", "Bash(trash *)",
                           "Bash(head *)", "Bash(sed -n *)", "Bash(printenv *)", "Bash(env)",
                           'Bash(echo "exit=$?")', 'Bash(echo "exit $?")',
-                          f"mcp__{harness_config.server_name(CFG)}", f"Bash({main}/.venv/bin/python *)"],
+                          f"mcp__{harness_config.server_name(CFG)}", f"Bash({main.as_posix()}/.venv/bin/python *)"],
                          body["permissions"]["allow"])
         self.assertEqual({"allow", "additionalDirectories"}, set(body["permissions"]))
         self.assertEqual({"permissions", "hooks"}, set(body))  # no mode, no env: nothing is bypassed
         dirs = body["permissions"]["additionalDirectories"]
-        for want in (f"{main}_wt", str(harness_config.path(CFG["project"]["state_root"])), "/tmp",
+        for want in (f"{main}_wt", str(harness_config.path(CFG["project"]["state_root"])),
+                     *([] if sys.platform == "win32" else ["/tmp"]),
                      str(SETTINGS.user_temp_dir().resolve())):
             self.assertIn(want, dirs)
         self.assertEqual(["SubagentStart"], list(body["hooks"]))
@@ -237,10 +238,11 @@ class SettingsSyncTests(unittest.TestCase):
         with patch.object(SETTINGS.product_worktree, "product_repo", lambda _cfg: (Path("/g/product"), Path("."))):
             dirs = SETTINGS.local_dirs(CFG)
             seat = SETTINGS.leg_seat_command(CFG)
-        self.assertEqual("/g/product_wt", dirs[0])
+        tree = str(Path("/g/product_wt"))  # the platform's own spelling: \g\product_wt on Windows
+        self.assertEqual(tree, dirs[0])
         self.assertIn("product_trees=/g/product_wt", seat)
         with patch.object(SETTINGS.product_worktree, "product_repo", lambda _cfg: None):
-            self.assertFalse([d for d in SETTINGS.local_dirs(CFG) if d.startswith("/g/")])
+            self.assertFalse([d for d in SETTINGS.local_dirs(CFG) if d.startswith(tree[:3])])
 
     @unittest.skipUnless(sys.platform == "darwin", "getconf DARWIN_USER_TEMP_DIR is the Mac answer")
     def test_the_local_render_ignores_the_process_tmpdir(self):
@@ -272,7 +274,7 @@ class SettingsSyncTests(unittest.TestCase):
         answer = json.loads(run.stdout)["hookSpecificOutput"]
         self.assertEqual("SubagentStart", answer["hookEventName"])
         main = harness_config.main_checkout(MODULE_PATH.parents[1])
-        self.assertTrue(answer["additionalContext"].startswith(f"SEAT hub={main} hub_trees={main}_wt"))
+        self.assertTrue(answer["additionalContext"].startswith(f"SEAT hub={main.as_posix()} hub_trees={main.as_posix()}_wt"))
 
     def test_a_hand_edit_of_the_local_settings_is_drift(self):
         with tempfile.TemporaryDirectory() as temporary:

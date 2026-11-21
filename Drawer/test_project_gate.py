@@ -86,8 +86,17 @@ def tearDownModule():
     BOX.cleanup()
 
 
-# The prepared interpreter each printed remedy names on this host: a new seat has no py launcher.
-PY = (".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python") + " -B"
+def posix(path):
+    """A path as Git Bash command text reads it: forward slashes (a backslash is an escape there)."""
+    return path.replace("\\", "/")
+
+
+def pjoin(*parts):
+    return posix(os.path.join(*parts))
+
+
+# The interpreter each printed remedy names: .venv/bin/python on every platform (a shim on Windows, Drawer/oscompat.py).
+PY = ".venv/bin/python -B"
 # -- the contract: the refusal the routed gate hands back, and the dispatcher's own -----------
 UNREADABLE = (
     "project-gate: cannot read the hook JSON, so it denies (fail closed). "
@@ -312,9 +321,9 @@ class HistoryRewrite(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory(prefix="hub-git-guard-")
-        root = os.path.realpath(cls.tmp.name)
+        root = posix(os.path.realpath(cls.tmp.name))
         git = lambda *a, cwd=root: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
-        cls.origin, cls.clone = os.path.join(root, "origin.git"), os.path.join(root, "clone")
+        cls.origin, cls.clone = pjoin(root, "origin.git"), pjoin(root, "clone")
         git("init", "-q", "--bare", "-b", "main", cls.origin)
         git("clone", "-q", cls.origin, cls.clone)
         c = lambda *a: git("-c", "user.name=t", "-c", "user.email=t@t", *a, cwd=cls.clone)
@@ -323,7 +332,7 @@ class HistoryRewrite(unittest.TestCase):
         c("branch", "merged")
         c("branch", "task/aaaaaaaa-merged")
         c("branch", "unmerged")
-        cls.own, cls.other = os.path.join(root, "own"), os.path.join(root, "other")
+        cls.own, cls.other = pjoin(root, "own"), pjoin(root, "other")
         c("worktree", "add", "-q", "-b", "session/aaaaaaaa", cls.own)
         c("worktree", "add", "-q", "-b", "session/bbbbbbbb", cls.other)
         git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "two", cwd=cls.own)
@@ -405,20 +414,20 @@ class UnboundHooks(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="hub-hooks-guard-")
         self.addCleanup(self.tmp.cleanup)
-        root = os.path.realpath(self.tmp.name)
+        root = posix(os.path.realpath(self.tmp.name))
         self.git = lambda cwd, *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=cwd,
                                                   check=True, capture_output=True, text=True)
-        self.hub = os.path.join(root, "hubrepo")
-        self.plain = os.path.join(root, "plain")
-        self.product = os.path.join(root, "prodrepo")
+        self.hub = pjoin(root, "hubrepo")
+        self.plain = pjoin(root, "plain")
+        self.product = pjoin(root, "prodrepo")
         for folder in (self.hub, self.plain, self.product):
             os.makedirs(folder)
             self.git(folder, "init", "-q", "-b", "main")
-        shutil.copy(os.path.join(HUB, "harness.toml"), os.path.join(self.hub, "harness.toml"))
-        open(os.path.join(self.hub, CONFIG["project"]["marker_file"]), "w").close()
+        shutil.copy(pjoin(HUB, "harness.toml"), pjoin(self.hub, "harness.toml"))
+        open(pjoin(self.hub, CONFIG["project"]["marker_file"]), "w").close()
         self.git(self.hub, "add", "-A")
         self.git(self.hub, "commit", "-q", "-m", "seed")
-        self.wt = os.path.join(root, "hubwt")
+        self.wt = pjoin(root, "hubwt")
         self.git(self.hub, "worktree", "add", "-q", "-b", "task/x", self.wt)
 
     def judge_in(self, cwd, command, env=None):
@@ -441,7 +450,7 @@ class UnboundHooks(unittest.TestCase):
         self.assertEqual(("pass", ""), self.judge_in(self.hub, "git status"))
         self.assertEqual(("pass", ""), self.judge_in(self.hub, "git log -1"))
         self.assertEqual(("pass", ""), self.judge_in(self.hub, "git config --get core.hooksPath"))
-        for value in ("Drawer/git-hooks", os.path.join(self.hub, "Drawer", "git-hooks")):
+        for value in ("Drawer/git-hooks", pjoin(self.hub, "Drawer", "git-hooks")):
             self.git(self.hub, "config", "core.hooksPath", value)
             for cwd in (self.hub, self.wt):
                 with self.subTest(value=value, cwd=cwd):
@@ -456,14 +465,14 @@ class UnboundHooks(unittest.TestCase):
 
     def test_the_product_checkout_and_its_worktree_are_judged_like_the_hub(self):
         self.git(self.product, "commit", "-q", "--allow-empty", "-m", "seed")
-        product_wt = os.path.join(os.path.dirname(self.product), "prodwt")
+        product_wt = pjoin(os.path.dirname(self.product), "prodwt")
         self.git(self.product, "worktree", "add", "-q", "-b", "task/p", product_wt)
         env = {harness_config.env_name("PRODUCT_PATH"): self.product}
         for cwd in (self.product, product_wt):
             with self.subTest(cwd=cwd):
                 self.assertEqual("deny", self.judge_in(cwd, "git commit -m x", env)[0])
-        self.git(self.product, "config", "core.hooksPath", os.path.join(BOX_DRAWER, "product-hooks"))
-        os.makedirs(os.path.join(BOX_DRAWER, "product-hooks"), exist_ok=True)
+        self.git(self.product, "config", "core.hooksPath", pjoin(BOX_DRAWER, "product-hooks"))
+        os.makedirs(pjoin(BOX_DRAWER, "product-hooks"), exist_ok=True)
         self.assertEqual(("pass", ""), self.judge_in(self.product, "git commit -m x", env))
 
 
@@ -481,10 +490,10 @@ class HeadStaysOnBranch(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="hub-head-guard-")
         self.addCleanup(self.tmp.cleanup)
-        root = os.path.realpath(self.tmp.name)
+        root = posix(os.path.realpath(self.tmp.name))
         git = lambda *a, cwd=root: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a],
                                                   cwd=cwd, check=True, capture_output=True)
-        origin, self.clone = os.path.join(root, "origin.git"), os.path.join(root, "clone")
+        origin, self.clone = pjoin(root, "origin.git"), pjoin(root, "clone")
         git("init", "-q", "--bare", "-b", "main", origin)
         git("clone", "-q", origin, self.clone)
         git("commit", "-q", "--allow-empty", "-m", "one", cwd=self.clone)
@@ -493,10 +502,10 @@ class HeadStaysOnBranch(unittest.TestCase):
         git("push", "-q", "origin", "HEAD:refs/heads/a.txt", cwd=self.clone)
         git("fetch", "-q", "origin", cwd=self.clone)
         git("branch", "task/other", cwd=self.clone)
-        self.wt, self.det = os.path.join(root, "aaaaaaaa-fix"), os.path.join(root, "det")
+        self.wt, self.det = pjoin(root, "aaaaaaaa-fix"), pjoin(root, "det")
         git("worktree", "add", "-q", "-b", self.BRANCH, self.wt, cwd=self.clone)
         git("worktree", "add", "-q", "--detach", self.det, cwd=self.clone)
-        open(os.path.join(self.wt, "a.txt"), "w").close()
+        open(pjoin(self.wt, "a.txt"), "w").close()
         git("add", "a.txt", cwd=self.wt)
         git("commit", "-q", "-m", "two", cwd=self.wt)
         self.sha = subprocess.run(["git", "-C", self.wt, "rev-parse", "HEAD"], check=True, capture_output=True,
@@ -592,24 +601,24 @@ class DeleteKillGuard(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory(prefix="hub-delete-guard-")
-        root = os.path.realpath(cls.tmp.name)
+        root = posix(os.path.realpath(cls.tmp.name))
         git = lambda *a, cwd=root: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a],
                                                   cwd=cwd, check=True, capture_output=True)
-        cls.origin, cls.hub = os.path.join(root, "origin.git"), os.path.join(root, "hub")
+        cls.origin, cls.hub = pjoin(root, "origin.git"), pjoin(root, "hub")
         git("init", "-q", "--bare", "-b", "main", cls.origin)
         git("clone", "-q", cls.origin, cls.hub)
         git("commit", "-q", "--allow-empty", "-m", "one", cwd=cls.hub)
         git("push", "-q", "origin", "HEAD:main", cwd=cls.hub)
         git("branch", "merged", cwd=cls.hub)
         git("branch", "task/aaaaaaaa-done", cwd=cls.hub)
-        trees = os.path.join(root, "hub_wt")
-        cls.own, cls.peer = os.path.join(trees, "aaaaaaaa-own"), os.path.join(trees, "bbbbbbbb-peer")
+        trees = pjoin(root, "hub_wt")
+        cls.own, cls.peer = pjoin(trees, "aaaaaaaa-own"), pjoin(trees, "bbbbbbbb-peer")
         git("worktree", "add", "-q", "-b", "task/aaaaaaaa-own", cls.own, cwd=cls.hub)
         git("worktree", "add", "-q", "-b", "task/bbbbbbbb-peer", cls.peer, cwd=cls.hub)
-        cls.tmpdir = os.path.join(root, "tmpdir")
-        for folder in (cls.own, cls.peer, cls.hub, os.path.join(cls.tmpdir, "scratch")):
-            os.makedirs(os.path.join(folder, "build"))
-            open(os.path.join(folder, "note.txt"), "w").close()
+        cls.tmpdir = pjoin(root, "tmpdir")
+        for folder in (cls.own, cls.peer, cls.hub, pjoin(cls.tmpdir, "scratch")):
+            os.makedirs(pjoin(folder, "build"))
+            open(pjoin(folder, "note.txt"), "w").close()
 
     @classmethod
     def tearDownClass(cls):
@@ -620,10 +629,10 @@ class DeleteKillGuard(unittest.TestCase):
                               "session_id": self.OWN})
         return run(payload, {"PATH": os.environ.get("PATH", ""), **(env or {})})
 
-    def assert_refused(self, cwd, commands, phrase):
+    def assert_refused(self, cwd, commands, phrase, env=None):
         for command in commands:
             with self.subTest(command=command):
-                verdict, reason = self.judge_in(cwd, command)
+                verdict, reason = self.judge_in(cwd, command, env)
                 self.assertEqual(("deny", self.REFUSED), (verdict, reason))
                 self.assertIn(phrase, reason)
 
@@ -732,9 +741,9 @@ class DeleteKillGuard(unittest.TestCase):
 
     def test_redirects_symlinks_and_tmpdir_pass(self):
         own, hub = self.own, self.hub
-        link = os.path.join(own, "hub-build-link")
+        link = pjoin(own, "hub-build-link")
         if not os.path.islink(link):
-            os.symlink(os.path.join(hub, "build"), link)
+            os.symlink(pjoin(hub, "build"), link)
         self.assert_pass(own, ("ps -p 123 >/dev/null && kill 123 2>/dev/null",
                                "kill -9 123 >/dev/null 2>&1; ps aux | grep x", "kill 123 > /dev/null",
                                "rm -rf hub-build-link", "trash hub-build-link", "rm -rf build 2>/dev/null"))
@@ -757,7 +766,10 @@ class DeleteKillGuard(unittest.TestCase):
         self.assert_refused(own, ("P=$(cat pidfile); kill $P", "P=`cat pidfile` && kill -9 ${P}"), "computed")
         self.assert_refused(own, ('D=$(mktemp -d /opt/guard/x.XXXX) && rm -rf "$D"', 'T=$(mktemp -d); T=/x; rm -rf "$T"'),
                             "cannot place")
-        self.assert_refused(own, ('T=$(mktemp -d) && rm -rf "$T/.."',), "is not inside")
+        # A new temp folder's parent is the temp root, which the gate takes from the temp folders it knows. A Windows
+        # hook carries TEMP; the child here has none, and /tmp is then C:/tmp, which Git Bash does not use.
+        self.assert_refused(own, ('T=$(mktemp -d) && rm -rf "$T/.."',), "is not inside",
+                            {"TEMP": tempfile.gettempdir()} if os.name == "nt" else None)
 
     # A review of the guard: a quoted or escaped find group, more self kills, a reused mktemp name, find -exec sh -c.
     def test_find_groups_self_kills_and_reused_mktemp_names_are_refused(self):
@@ -1288,7 +1300,7 @@ class HookBypass(unittest.TestCase):
                 "git log --grep='no-verify' --oneline", "git push origin HEAD:main", "git push -n origin HEAD:main",
                 "git commit -m x", "git config core.hooksPath", "git config --get core.hooksPath",
                 "git config get core.hooksPath", "git config --show-origin --get core.hooksPath",
-                "git -C ~/My_Product config core.hooksPath %s/Drawer/product-hooks" % os.path.dirname(BOX_DRAWER),
+                "git -C ~/My_Product config core.hooksPath %s/Drawer/product-hooks" % posix(os.path.dirname(BOX_DRAWER)),
                 "git commit -m x -m '-n'", "git commit --message '--no-verify' -m x", "git commit -m x -- -n",
                 "git config core.hooksPath Drawer/git-hooks",
                 "mem add --kind lesson --body 'never run git commit --no-verify or git -c core.hooksPath=x'",
@@ -1307,14 +1319,17 @@ class LawShellFence(unittest.TestCase):
     def setUpClass(cls):
         """A loose temp folder under /tmp (the child sees no TMPDIR): no .git and no hub marker above it."""
         global LOOSE
-        LOOSE = os.path.realpath(tempfile.mkdtemp(prefix="hub-law-fence-loose-", dir="/tmp"))
+        LOOSE = posix(os.path.realpath(tempfile.mkdtemp(prefix="hub-law-fence-loose-", dir=None if os.name == "nt" else "/tmp")))
 
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(LOOSE, ignore_errors=True)
 
+    # A Windows hook carries TEMP: it is the loose temp folder's root (the child above has no TMPDIR, so /tmp).
+    ENV = {"TEMP": tempfile.gettempdir()} if os.name == "nt" else None
+
     def judge(self, command):
-        return run(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": BOX_HUB}))
+        return run(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": BOX_HUB}), self.ENV)
 
     def assert_refused(self, commands):
         for command in commands:
@@ -1327,9 +1342,9 @@ class LawShellFence(unittest.TestCase):
             "echo x > AGENTS.md", "echo x >> .claude/skills/qa/SKILL.md", "echo x>CLAUDE.md",
             "cat a &> PRODUCT-CONVENTIONS.md", "printf x >| CLAUDE.local.md", "echo x 2> agents.md",
             "echo x > \"AGENTS.md\"", "cat <<'EOF' > AGENTS.md\nnew rules\nEOF",
-            "echo x > %s/AGENTS.md" % BOX_HUB, "bash -c 'echo x > AGENTS.md'", "echo \"$(echo x > SKILL.md)\"",
+            "echo x > %s/AGENTS.md" % posix(BOX_HUB), "bash -c 'echo x > AGENTS.md'", "echo \"$(echo x > SKILL.md)\"",
             "cat <<'EOF' | bash\necho x > CLAUDE.md\nEOF", "cd /tmp && echo x > AGENTS.md",
-            "cd %s && echo x > AGENTS.md" % BOX_HUB))
+            "cd %s && echo x > AGENTS.md" % posix(BOX_HUB)))
 
     # Injection: law_write_reason() drop the tee and sed or perl in-place rules.
     def test_tee_and_in_place_edits_of_a_law_file_are_refused(self):
@@ -1343,7 +1358,7 @@ class LawShellFence(unittest.TestCase):
     def test_cp_mv_and_ln_onto_a_law_file_are_refused(self):
         self.assert_refused((
             "cp /tmp/x AGENTS.md", "cp -f /tmp/x .claude/skills/qa/SKILL.md", "cp /tmp/AGENTS.md .claude/skills/qa/",
-            "cp -t . /tmp/CLAUDE.md", "mv AGENTS.md /tmp/x.txt", "cp /tmp/AGENTS.md %s/sub/" % BOX_HUB, "mv /tmp/new.md SKILL.md",
+            "cp -t . /tmp/CLAUDE.md", "mv AGENTS.md /tmp/x.txt", "cp /tmp/AGENTS.md %s/sub/" % posix(BOX_HUB), "mv /tmp/new.md SKILL.md",
             "ln -s AGENTS.md CLAUDE.md", "ln -sf /tmp/x PRODUCT-CONVENTIONS.md", "install -m 644 /tmp/x AGENTS.md"))
 
     # Injection: law_write_reason() drop the interpreter script rule.
@@ -1360,11 +1375,11 @@ class LawShellFence(unittest.TestCase):
     def test_a_cd_from_a_loose_temp_folder_keeps_a_relative_write_fenced(self):
         """A re-review of the law fence: the temp pass read a relative path from the event cwd, so a cd into the hub
         opened it. A relative law-file write is fenced whatever the cwd."""
-        for command in ("cd %s && sed -i '' s/a/b/ AGENTS.md" % BOX_HUB, "cd %s && echo x > CLAUDE.md" % BOX_HUB,
+        for command in ("cd %s && sed -i '' s/a/b/ AGENTS.md" % posix(BOX_HUB), "cd %s && echo x > CLAUDE.md" % posix(BOX_HUB),
                         "echo x > AGENTS.md"):
             with self.subTest(command=command):
                 self.assertEqual(("deny", self.LAW), run(json.dumps(
-                    {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": LOOSE})))
+                    {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": LOOSE}), self.ENV))
 
     def test_reads_quoted_mentions_and_home_claude_writes_pass(self):
         for command in (
@@ -1470,7 +1485,7 @@ class UnscopedSearch(unittest.TestCase):
 
     def project(self):
         """The private hub's [product] path, as setUpModule wrote it."""
-        return os.path.join(os.path.dirname(BOX_HUB), "product")
+        return pjoin(os.path.dirname(BOX_HUB), "product")
 
     def test_a_recursive_grep_over_a_whole_generated_tree_is_refused(self):
         for command in ("grep -rn Foo .gen", "cd x && grep -R -e Foo ../product/.gen/",

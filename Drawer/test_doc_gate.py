@@ -49,8 +49,9 @@ def setUpModule():
     # The hook's whole environment: what doc-gate.py reads and nothing else. A copied parent
     # environment would let a seat's own variables decide the verdict.
     BASE_ENV = {"DOC_GATE": "dry", "CLAUDE_PROJECT_DIR": HUB, "PYTHONDONTWRITEBYTECODE": "1"}
-    if os.name == "nt":  # a Windows interpreter needs its system root to start
+    if os.name == "nt":  # a Windows interpreter needs its system root to start; the gate finds git on PATH
         BASE_ENV["SYSTEMROOT"] = os.environ.get("SYSTEMROOT", r"C:\Windows")
+        BASE_ENV["PATH"] = os.environ.get("PATH", "")  # POSIX falls back to a default path; Windows has none
 
 
 def tearDownModule():

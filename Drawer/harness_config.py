@@ -149,9 +149,8 @@ def real_home():
     if saved:
         return Path(saved)
     try:
-        import pwd
-        return Path(pwd.getpwuid(os.getuid()).pw_dir)
-    except (ImportError, KeyError, AttributeError):
+        return oscompat.account_home()
+    except (ImportError, OSError, AttributeError):
         return Path.home()
 
 
@@ -169,13 +168,23 @@ def test_home(env, home):
     python3 from PATH, and a Mac with a uv-managed .venv only has the stock 3.9 there (incident e14ea0c2)."""
     env = dict(env)
     env.setdefault(REAL_HOME_VAR, str(real_home()))
-    env.update(HOME=str(home), USERPROFILE=str(home))
+    env.update(home_vars(home))
+    # The temp HOME holds no gitconfig, and Git for Windows does not guess an identity as POSIX git does.
+    for who in ("AUTHOR", "COMMITTER"):
+        env.setdefault(f"GIT_{who}_NAME", "hub-test")
+        env.setdefault(f"GIT_{who}_EMAIL", "hub-test@example.invalid")
     own = os.path.dirname(sys.executable)
     rest = [part for part in env.get("PATH", "").split(os.pathsep) if part and part != own]
     env["PATH"] = os.pathsep.join([own, *rest])
     for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR"):
         env.pop(name, None)
     return env
+
+
+def home_vars(home):
+    """The variables a test sets to move the user home: HOME for POSIX and Git Bash, USERPROFILE for the Windows
+    Path.home() and expanduser("~")."""
+    return {"HOME": str(home), "USERPROFILE": str(home)}
 
 
 def isolate_test_env():

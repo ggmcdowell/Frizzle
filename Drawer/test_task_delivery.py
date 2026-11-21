@@ -30,8 +30,9 @@ def g(cwd, *args):
 
 class CheckPathTests(unittest.TestCase):
     def test_a_windows_backslash_path_is_a_repo_path_only_on_windows(self):
-        with self.assertRaises(task_delivery.DeliveryError):
-            task_delivery.check_path("Drawer\\mem\\mem.py")
+        with mock.patch.object(task_delivery.oscompat, "WINDOWS", False):
+            with self.assertRaises(task_delivery.DeliveryError):
+                task_delivery.check_path("Drawer\\mem\\mem.py")
         with mock.patch.object(task_delivery.oscompat, "WINDOWS", True):
             self.assertEqual("Drawer/mem/mem.py", task_delivery.check_path("Drawer\\mem\\mem.py"))
             with self.assertRaises(task_delivery.DeliveryError):

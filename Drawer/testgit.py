@@ -11,8 +11,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # oscompat, beside this file
 
 # An empty GIT_TEMPLATE_DIR: git init and git clone copy no template folder (git-init(1) TEMPLATE DIRECTORY).
 ENV = {"GIT_TEMPLATE_DIR": ""}
@@ -29,6 +32,16 @@ def _own_python_first() -> None:
 
 
 _own_python_first()
+
+
+def system_path() -> str:
+    """A PATH for a fixture that must not see the box's own tools: git's folder and the POSIX system folders. On
+    Windows Git for Windows' sh sits in its own folders, which git needs to run a hook."""
+    import oscompat
+    folders = {os.path.dirname(shutil.which("git") or ""), "/usr/bin", "/bin"}
+    if oscompat.WINDOWS:
+        folders.add(os.path.dirname(oscompat.git_shell("sh")))
+    return os.pathsep.join(sorted(f for f in folders if f))
 
 
 def arm() -> None:
@@ -57,6 +70,33 @@ def slim(git_dir: Path) -> None:
             path.unlink()
 
 
+def _writable(function, path, _info) -> None:
+    """shutil.rmtree onerror: clear the read-only bit Git sets on pack and object files (Windows refuses to
+    remove or overwrite them), then retry."""
+    os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+    function(path)
+
+
+def rmtree(path) -> None:
+    """Remove a folder tree that holds Git's read-only files; a missing folder is no error."""
+    if os.path.lexists(path):
+        shutil.rmtree(path, onerror=_writable)
+
+
+def _copy_writable(source, target, *, follow_symlinks=True):
+    """shutil.copy2 whose copy is writable: a Git pack or bitmap file is read-only, and a copy of it blocks the
+    next case's overwrite and the cleanup on Windows."""
+    copied = shutil.copy2(source, target, follow_symlinks=follow_symlinks)
+    if os.name == "nt" and not os.path.islink(copied):
+        os.chmod(copied, stat.S_IWRITE | stat.S_IREAD)
+    return copied
+
+
+def copytree(source, target) -> None:
+    """Copy a Git fixture tree into target (which may exist), with writable copies."""
+    shutil.copytree(source, target, symlinks=True, dirs_exist_ok=True, copy_function=_copy_writable)
+
+
 def seed(folder: Path, files: list[Path]) -> Path:
     """A bare repo under folder that holds each file's blob in one pack; returns its objects folder."""
     bare = Path(folder) / "seed.git"
@@ -72,4 +112,7 @@ def borrow(git_dir: Path, objects: Path) -> None:
     """git_dir reads objects from that objects folder too (gitrepository-layout(5) objects/info/alternates)."""
     info = Path(git_dir) / "objects" / "info"
     info.mkdir(parents=True, exist_ok=True)
-    (info / "alternates").write_text(f"{objects}\n", encoding="utf-8")
+    # LF, not the platform's newline (a CRLF line names an objects folder that ends in a carriage return), and
+    # forward slashes, which git reads on Windows too.
+    with open(info / "alternates", "w", encoding="utf-8", newline="\n") as alternates:
+        alternates.write(f"{Path(objects).as_posix()}\n")

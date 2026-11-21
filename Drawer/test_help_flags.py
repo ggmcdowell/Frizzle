@@ -14,8 +14,13 @@ import threading
 import unittest
 
 HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, HERE)
+import oscompat  # noqa: E402
 SCRIPTS = ["context-nudge.py", "flight-hooks.py", "project-gate.py", "flight-watchdog.py", "steer_check.py",
            "incident.py", "harness-conform.py"]
+
+
+CRLF, LF = chr(13) + chr(10), chr(10)
 
 
 def run_held(argv, data=b"", timeout=5.0, env=None):
@@ -32,7 +37,9 @@ def run_held(argv, data=b"", timeout=5.0, env=None):
             child.stdin.flush()
         out, err = child.stdout.read(), child.stderr.read()  # EOF only when the child exits
         code = None if not killer.is_alive() else child.wait()
-        return code, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"), time.monotonic() - start
+        # Text-mode output on Windows ends each line with CRLF; the docstring it is compared to has LF.
+        return (code, out.decode("utf-8", "replace").replace(CRLF, LF),
+                err.decode("utf-8", "replace").replace(CRLF, LF), time.monotonic() - start)
     finally:
         killer.cancel()
         if child.poll() is None:
@@ -75,7 +82,7 @@ class HelpFlagTests(unittest.TestCase):
         import threading
         result = {}
         t = threading.Thread(target=lambda: result.update(r=run_held(
-            ["bash", os.path.join(HERE, "statusline-command.sh")], line, timeout=3, env=self.env)), daemon=True)
+            [oscompat.git_shell("bash"), os.path.join(HERE, "statusline-command.sh")], line, timeout=3, env=self.env)), daemon=True)
         t.start()
         t.join(3)
         self.assertFalse(t.is_alive(), "status line blocked past 3 s")

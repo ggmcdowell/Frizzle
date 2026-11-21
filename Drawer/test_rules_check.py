@@ -9,6 +9,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Drawer"))
+import harness_config  # noqa: E402
 import rules_check  # noqa: E402
 
 
@@ -23,9 +24,15 @@ class RulesCheckTests(unittest.TestCase):
             d.mkdir(parents=True)
         (self.hub / "AGENTS.md").write_text("# Hub rules\n- Rules sentinel: test-code. Stop when unread.\n")
         (self.home / ".claude" / "CLAUDE.md").write_text("user scope\n")
-        env = mock.patch.dict(os.environ, {"HOME": str(self.home)})
+        env = mock.patch.dict(os.environ, harness_config.home_vars(self.home))
         env.start()
         self.addCleanup(env.stop)
+        # The temp box can sit under the real home (Windows temp does): that home's ~/.claude/CLAUDE.md is user
+        # scope too, and no shadow candidate of the temp hub's parents.
+        real_user_file = harness_config.real_home() / ".claude" / "CLAUDE.md"
+        candidates = rules_check.candidates
+        self.enterContext(mock.patch.object(rules_check, "candidates",
+                                            lambda folder: [p for p in candidates(folder) if p != real_user_file]))
         self.addCleanup(self.tmp.cleanup)
 
     def faults(self):
@@ -68,7 +75,8 @@ class RulesCheckTests(unittest.TestCase):
         self.assertFalse(rules_check.shadowing(str(self.hub / "Drawer" / "CLAUDE.md"), self.hub))
 
     def test_a_lower_case_shadow_file_counts_only_where_the_file_system_ignores_case(self):
-        self.assertFalse(rules_check.is_shadow_name("/hub/" + "claude.md"))
+        with mock.patch.object(rules_check.oscompat, "WINDOWS", False):
+            self.assertFalse(rules_check.is_shadow_name("/hub/" + "claude.md"))
         with mock.patch.object(rules_check.oscompat, "WINDOWS", True):
             self.assertTrue(rules_check.is_shadow_name("C:/hub/" + "claude.md"))
             self.assertTrue(rules_check.is_shadow_name("C:/hub/" + "Claude.Local.md"))
@@ -158,6 +166,15 @@ class RulesCheckTests(unittest.TestCase):
         stub.write_text("#!/bin/sh\nexec sleep 5\n")
         stub.chmod(0o755)
         self.enterContext(mock.patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}))
+        if sys.platform == "win32":  # CreateProcess runs only git.exe, never a script: a real 5 s sleeper stands in for git
+            real_run = subprocess.run
+
+            def hung_git(cmd, *args, **kwargs):
+                try:
+                    return real_run([sys.executable, "-c", "import time; time.sleep(5)"], *args, **kwargs)
+                except subprocess.TimeoutExpired as exc:
+                    raise subprocess.TimeoutExpired(cmd, exc.timeout) from None
+            self.enterContext(mock.patch.object(rules_check.subprocess, "run", hung_git))
         self.enterContext(mock.patch.object(harness_config, "load",
                                             return_value={"product": {"path": str(self.product)}}))
         self.enterContext(mock.patch.object(rules_check, "GIT_TIMEOUT", 1))

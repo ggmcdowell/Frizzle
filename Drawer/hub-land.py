@@ -55,6 +55,7 @@ Owner: Harness.
 import argparse
 import importlib.util
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -155,6 +156,7 @@ def untracked(wt):
 
 
 def remove(hub, name):
+    os.chdir(hub)  # Windows refuses to delete a folder that is some process's working directory, ours included
     removed = run(py(hub, "git-branch-policy.py", "worktree-remove", "--name", name), hub)
     fields = {"removed": removed.returncode == 0}
     if removed.returncode != 0:
@@ -170,11 +172,27 @@ def main_copy():
     return main
 
 
+def absolute_message_file(argv):
+    """argv with a relative --message-file made absolute, for a process about to leave its cwd."""
+    out = []
+    for position, arg in enumerate(argv):
+        if arg == "--":
+            return out + argv[position:]
+        if arg.startswith("--message-file="):
+            arg = "--message-file=" + str(Path(arg.split("=", 1)[1]).resolve())
+        elif out and out[-1] == "--message-file":
+            arg = str(Path(arg).resolve())
+        out.append(arg)
+    return out
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     lander = main_copy()
     if lander is not None:  # a stale branch copy smoked and landed with a fault main had fixed
         sys.stdout.flush()
+        argv = absolute_message_file(argv)
+        os.chdir(lander.parent.parent)  # as in remove(): this process must not hold the task worktree as its cwd
         return subprocess.run([sys.executable, "-B", str(lander), *argv], check=False).returncode
     parser = argparse.ArgumentParser(prog="hub-land.py")
     parser.add_argument("--name", required=True)

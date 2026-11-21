@@ -20,6 +20,7 @@ from unittest import mock
 
 HUB = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HUB / "Drawer"))
+import oscompat  # noqa: E402
 import testgit  # noqa: E402
 
 testgit.arm()  # no git template in any fixture repo
@@ -27,7 +28,7 @@ SPEC = importlib.util.spec_from_file_location("product_init", HUB / "Drawer" / "
 product_init = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(product_init)
 GIT = shutil.which("git")
-SYSTEM_PATH = os.pathsep.join(sorted({os.path.dirname(GIT), "/usr/bin", "/bin"}))
+SYSTEM_PATH = testgit.system_path()
 BLOCKED = tomllib.loads((HUB / "harness.toml").read_text(encoding="utf-8"))["smoke"]["blocked_exit"]
 STUB = """#!/bin/sh
 case "$*" in
@@ -36,7 +37,26 @@ case "$*" in
 esac
 exit 0
 """
+# Windows: Python finds and starts a godot only as a PATHEXT file (godot.cmd here), while Git Bash's sh, which runs the
+# gate, finds only a script that starts with #! (the extensionless godot beside it). The stub is both.
+CMD_STUB = "@echo 4.9.stub.test\r\n"
 SYNC_STUB = "import sys\nprint('wrote: .mcp.json' if '--mcp' in sys.argv and not __import__('os').path.exists('.synced') else 'in sync')\n"
+
+
+def write_godot(path):
+    """A stub godot at path: an executable sh script; on Windows also the .cmd beside it that Python can start."""
+    path.write_text(STUB, encoding="utf-8", newline="\n")
+    path.chmod(0o755)
+    if oscompat.WINDOWS:
+        path.with_name(path.name + ".cmd").write_text(CMD_STUB, encoding="utf-8", newline="")
+
+
+def run_gate(argv, **kwargs):
+    """subprocess.run; on Windows the GODOT that find_godot found is the .cmd, and the gate's sh wants the script."""
+    env = kwargs.get("env") or {}
+    if env.get("GODOT", "").lower().endswith(".cmd"):
+        kwargs["env"] = {**env, "GODOT": env["GODOT"][:-len(".cmd")]}
+    return subprocess.run(argv, **kwargs)
 
 
 def git(cwd, *args):
@@ -59,13 +79,11 @@ class ProductInitTests(unittest.TestCase):
         (self.hub / marker).write_text("")
         py = self.hub / ".venv" / "bin" / "python"
         py.parent.mkdir(parents=True)
-        py.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+        py.write_text(f'#!/bin/sh\nexec "{Path(sys.executable).as_posix()}" "$@"\n', encoding="utf-8", newline="\n")
         py.chmod(0o755)
         self.bin = self.base / "bin"
         self.bin.mkdir()
-        stub = self.bin / "godot"
-        stub.write_text(STUB, encoding="utf-8")
-        stub.chmod(0o755)
+        write_godot(self.bin / "godot")
         empty = self.base / "empty.gitconfig"
         empty.write_text("", encoding="utf-8")
         # No git identity at all: init commits with its own.
@@ -84,7 +102,7 @@ class ProductInitTests(unittest.TestCase):
     def init(self, *args, path=None):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = product_init.main(["--path", str(path or self.product), *args], hub=self.hub)
+            code = product_init.main(["--path", str(path or self.product), *args], hub=self.hub, run=run_gate)
         lines = out.getvalue().strip().splitlines()
         self.assertEqual(1, len(lines), out.getvalue() + err.getvalue())
         return code, json.loads(lines[0]), err.getvalue()
@@ -93,8 +111,10 @@ class ProductInitTests(unittest.TestCase):
         return tomllib.loads(self.local.read_text(encoding="utf-8")).get("product", {})
 
     def test_gdformat_in_the_hub_environment_counts_with_no_gdformat_on_path(self):
-        fmt = self.hub / ".venv" / "bin" / "gdformat"
-        fmt.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        # The hub environment's script folder, and on Windows a name PATHEXT finds.
+        fmt = oscompat.venv_bin(self.hub) / ("gdformat.cmd" if oscompat.WINDOWS else "gdformat")
+        fmt.parent.mkdir(parents=True, exist_ok=True)
+        fmt.write_text("@exit /b 0\r\n" if oscompat.WINDOWS else "#!/bin/sh\nexit 0\n", encoding="utf-8", newline="")
         fmt.chmod(0o755)
         code, row, err = self.init("--pack", "godot", "--local-origin")
         self.assertEqual((0, True), (code, row["gdformat"]), err)
@@ -121,7 +141,7 @@ class ProductInitTests(unittest.TestCase):
         self.assertEqual([".godot", ".import"], table["broad_roots"])
         self.assertEqual("godot-editor", table["mcp_server"])
         self.assertNotIn("mcp_url", table)
-        self.assertEqual(str(self.hub / "Drawer" / "product-hooks"), git(self.product, "config", "core.hooksPath"))
+        self.assertEqual((self.hub / "Drawer" / "product-hooks").as_posix(), git(self.product, "config", "core.hooksPath"))
         self.assertEqual(git(self.product, "rev-parse", "HEAD^{tree}"),
                          (self.product / ".gate-verdict").read_text(encoding="utf-8").strip())
         self.assertIn("commit", row["changed"])
@@ -184,14 +204,15 @@ class ProductInitTests(unittest.TestCase):
         self.assertFalse(self.local.exists())
 
     def test_godot_is_found_by_env_then_path_then_the_mac_app(self):
-        other = self.base / "other-godot"
-        other.write_text(STUB, encoding="utf-8")
-        other.chmod(0o755)
+        ext = ".cmd" if oscompat.WINDOWS else ""  # Windows finds a file only by an extension in PATHEXT
+        other = self.base / ("other-godot" + ext)
+        write_godot(self.base / "other-godot")
         app = self.base / "Godot"
-        app.write_text(STUB, encoding="utf-8")
-        app.chmod(0o755)
+        write_godot(app)
         self.assertEqual(str(other), product_init.find_godot({"GODOT": str(other), "PATH": str(self.bin)}, app))
-        self.assertEqual(str(self.bin / "godot"), product_init.find_godot({"PATH": str(self.bin)}, app))
+        # PATHEXT may spell the extension in upper case
+        self.assertEqual(os.path.normcase(self.bin / ("godot" + ext)),
+                         os.path.normcase(product_init.find_godot({"PATH": str(self.bin)}, app)))
         self.assertEqual(str(app), product_init.find_godot({"PATH": "/nonexistent"}, app))
         self.assertIsNone(product_init.find_godot({"GODOT": "/nonexistent/godot", "PATH": str(self.bin)}, app))
         self.assertIsNone(product_init.find_godot({"PATH": "/nonexistent"}, self.base / "absent"))

@@ -63,7 +63,7 @@ CORE = ("harness.toml", "Drawer/harness_config.py", "Drawer/runlib.py", "Drawer/
 RAN = re.compile(r"(?m)^Ran (\d+) tests? in ")
 SKIPPED = re.compile(r"(?m)^(?:OK|FAILED) \([^)]*\bskipped=(\d+)")
 SCAN_TEST = "Drawer/test_precommit.py"  # its secret-scan tests skip when gitleaks is missing
-HUB_TEST_TIMEOUT = 900  # seconds for one hub test file (test_git_branch_policy.py, the slowest, takes under 2 min)
+HUB_TEST_TIMEOUT = 1800  # seconds for one hub test file: test_hub_land.py, the slowest, takes under 2 min on POSIX and 10 to 15 on a loaded Windows box (every test spawns git and python children)
 
 
 def blocked_exit(cfg) -> int:

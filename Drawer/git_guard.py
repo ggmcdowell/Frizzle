@@ -136,7 +136,7 @@ WINDOWS_DELETE = re.compile(r"(?i)(?<![\w-])(?:del|erase|rd|rmdir|remove-item|ri
 LOOKUP = re.compile(r"(?<![\w-])(?:pgrep|pidof|ps|lsof|fuser|pstree)(?![\w-])")
 SELF_KILL = "a kill of $$ or $PPID stops this shell or its session. Fix: kill a child by literal pid or $!."
 MKTEMP = re.compile(r"(?<![\w$])([A-Za-z_]\w*)=[\"']?\$\(\s*mktemp\b([^)]*)\)")
-UNPLACEABLE = re.compile(r"[$`{}]")
+UNPLACEABLE = re.compile(r"[$`{}\0]")  # a NUL names no path: refused whatever realpath does with it (it raises on POSIX only)
 FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1[^\n]*\n(.*?)^\s*\2\s*$", re.S | re.M)
 

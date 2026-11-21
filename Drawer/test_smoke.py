@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import gatelib  # noqa: E402
 import smoke  # noqa: E402
 
 REAL_RUN = smoke.subprocess.run
@@ -511,19 +512,25 @@ class RunTmpTests(unittest.TestCase):
 
     def test_a_killed_run_folder_is_trashed_by_the_next_run_and_a_live_one_stays(self):
         import subprocess
-        code = ("import sys, time; sys.path.insert(0, sys.argv[1]); import run_tmp\n"
+        import time
+        code = ("import os, sys, time; sys.path.insert(0, sys.argv[1]); import run_tmp\n"
                 "from pathlib import Path; run_tmp.TEMP_ROOT = Path(sys.argv[3])\n"
                 "with run_tmp.run_folder({'project': {'state_root': sys.argv[2]}}) as env:\n"
-                "    print(env['TMPDIR'], flush=True); time.sleep(120)\n")
+                "    print(os.getpid(), env['TMPDIR'], flush=True); time.sleep(120)\n")
         proc = subprocess.Popen([sys.executable, "-B", "-c", code, os.path.dirname(os.path.realpath(__file__)),
                                  str(self.tmp / "state"), str(self.tmp / "temp")], stdout=subprocess.PIPE, text=True,
                                 env={"PATH": "/usr/bin:/bin"})
-        killed = Path(proc.stdout.readline().strip())
+        owner, _, folder = proc.stdout.readline().strip().partition(" ")
+        killed = Path(folder)
         proc.kill()
         proc.wait()
+        for _ in range(100):  # a Windows venv launcher: the interpreter is its child, with its own pid, and dies with it
+            if gatelib.pid_state(int(owner)) == "gone":
+                break
+            time.sleep(0.1)
         proc.stdout.close()
         self.assertTrue(killed.is_dir())
-        self.assertEqual(str(proc.pid), (killed / ".owner").read_text())
+        self.assertEqual(owner, (killed / ".owner").read_text())
         live = self.base / "live"
         live.mkdir()
         (live / ".owner").write_text(str(os.getpid()))

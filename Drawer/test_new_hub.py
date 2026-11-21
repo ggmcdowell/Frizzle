@@ -19,6 +19,8 @@ HUB = HERE.parent
 CLI = HERE / "new-hub.py"
 PY = sys.executable
 sys.path.insert(0, str(HERE))
+import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 import testgit  # noqa: E402
 
 GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
@@ -40,7 +42,7 @@ class NewHubTest(unittest.TestCase):
         cls.home = cls.tmp / "home"
         cls.home.mkdir()
         env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-        cls.env = {**env, **GIT_ENV, "HOME": str(cls.home)}
+        cls.env = {**env, **GIT_ENV, **harness_config.home_vars(cls.home)}
         # The template: this checkout's head plus its uncommitted files, so the test runs the code under test.
         # --shared: the template reads the hub's objects by alternates and copies none.
         cls.template = cls.tmp / "template"
@@ -134,13 +136,17 @@ class NewHubTest(unittest.TestCase):
                    "--display", "Zq Roots", "--state-root", str(state), "--config-root", f"{config}/",
                    "--copy-secrets"], self.template, self.env)
         cfg = tomllib.loads((dest / "harness.toml").read_text())
-        self.assertEqual((str(config), str(state)), (cfg["project"]["config_root"], cfg["project"]["state_root"]))
-        self.assertEqual(f"{state}/hub.db", cfg["mem"]["db"])
-        self.assertEqual(f"{state}/mem-export", cfg["mem"]["export_dir"])
-        self.assertEqual(f"{config}/mem.env", cfg["mem"]["env_file"])
-        self.assertEqual(f"{config}/name-denylist.txt", cfg["names"]["denylist"])
+        sp, cp = state.as_posix(), config.as_posix()  # harness.toml holds a Windows root with forward slashes
+        self.assertEqual((cp, sp), (cfg["project"]["config_root"], cfg["project"]["state_root"]))
+        self.assertEqual(f"{sp}/hub.db", cfg["mem"]["db"])
+        self.assertEqual(f"{sp}/mem-export", cfg["mem"]["export_dir"])
+        self.assertEqual(f"{cp}/mem.env", cfg["mem"]["env_file"])
+        self.assertEqual(f"{cp}/name-denylist.txt", cfg["names"]["denylist"])
         for name in ("name-denylist.txt", "mem.env"):
-            self.assertEqual(0o600, stat.S_IMODE((config / name).stat().st_mode), name)
+            if oscompat.WINDOWS:  # NTFS has no POSIX mode: the copy relies on the user-profile ACL
+                self.assertTrue((config / name).is_file(), name)
+            else:
+                self.assertEqual(0o600, stat.S_IMODE((config / name).stat().st_mode), name)
         self.assertEqual("secretname\n", (config / "name-denylist.txt").read_text())
         self.assertNotIn("secretname", out.stdout + out.stderr)
         self.assertNotIn("sk-test", out.stdout + out.stderr)
@@ -270,7 +276,8 @@ class WindowsBranchTest(unittest.TestCase):
         self.assertEqual("C:/work/me/state", root)
         text = self.mod.set_key('[project]\nstate_root = "x"\n', "project", "state_root", root)
         self.assertEqual(root, tomllib.loads(text)["project"]["state_root"])
-        self.assertEqual("a\\b", self.mod._slashes("a\\b"))  # POSIX: a backslash is a name character
+        with mock.patch.object(self.mod.oscompat, "WINDOWS", False):
+            self.assertEqual("a\\b", self.mod._slashes("a\\b"))  # POSIX: a backslash is a name character
 
     def test_a_copied_secret_is_byte_identical_and_names_the_windows_access_list(self):
         from unittest import mock

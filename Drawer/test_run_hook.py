@@ -273,7 +273,8 @@ class InterpreterLadderTests(WrapperFixture):
         cls.venv = cls.hub / ".venv"
         subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(cls.venv)], check=True,
                        capture_output=True)
-        cls.venv_python = cls.venv / "bin" / "python"
+        # The venv puts its interpreter at Scripts/python.exe on Windows, bin/python elsewhere.
+        cls.venv_python = (cls.venv / "Scripts" / "python.exe") if os.name == "nt" else (cls.venv / "bin" / "python")
 
     # Defect: under dash, read -t is an illegal option, so every gate was killed and every call allowed
     # unchecked. Injection: run-hook.sh drops the bash re-exec line.
@@ -310,10 +311,18 @@ class InterpreterLadderTests(WrapperFixture):
     def test_sh_prefers_the_windows_interpreter_over_the_posix_one(self):
         """uv puts the interpreter at .venv/Scripts/python.exe on Windows: -f finds it, with no x bit."""
         scripts = self.venv / "Scripts"
-        scripts.mkdir()
-        self.addCleanup(shutil.rmtree, scripts)
-        (scripts / "python.exe").write_text("not a program\n", encoding="utf-8")
-        (scripts / "python.exe").chmod(0o644)
+        fake = scripts / "python.exe"
+        if scripts.exists():
+            # A Windows venv already has a real Scripts/python.exe: swap it for the fake, restore it after.
+            real = scripts / "python.exe.real"
+            fake.rename(real)
+            self.addCleanup(real.rename, fake)
+            self.addCleanup(fake.unlink)
+        else:
+            scripts.mkdir()
+            self.addCleanup(shutil.rmtree, scripts)
+        fake.write_text("not a program\n", encoding="utf-8")
+        fake.chmod(0o644)
         # The ladder picks Scripts/python.exe before bin/python: running it fails, which proves the pick.
         result = self.sh("pass", str(self.probe), "--answer", stdin="{}")
         self.assertNotEqual(0, result.returncode)

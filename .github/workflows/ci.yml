@@ -36,3 +36,43 @@ jobs:
         run: .venv/bin/python -B Drawer/settings-sync.py --tracked
       - name: Harness conform (offline checks except settings; a runner has no seat and no claude)
         run: .venv/bin/python -B Drawer/harness-conform.py skills hooks pointers agents hiding blobs pins cites config
+
+  # Windows 11 class runner: every command runs in Git Bash as on a seat (WINDOWS.md), so the same smoke, settings and
+  # conform lines run through the .venv/bin/python shim that seat.py shims writes.
+  hub-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - name: Keep the uv Python outside HOME (the tests run with a temp HOME and look for it offline)
+        run: echo "UV_PYTHON_INSTALL_DIR=$RUNNER_TEMP/uv-python" >> "$GITHUB_ENV"
+      - name: Install uv
+        run: python -m pip install uv
+      - name: Install gitleaks (pinned release, checked against its published SHA-256)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "gitleaks"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $zip = Join-Path $dir "gitleaks.zip"
+          Invoke-WebRequest -Uri "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_windows_x64.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne "D29144DEFF3A68AA93CED33DDF84B7FDC26070ADD4AA0F4513094C8332AFC4E") { throw "gitleaks zip checksum mismatch" }
+          Expand-Archive $zip -DestinationPath $dir -Force
+          Add-Content -Path $env:GITHUB_PATH -Value $dir
+      - name: Git identity for the test repos
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@example.invalid
+          git config --global core.longpaths true
+      - name: Sync the environment
+        run: uv sync
+      - name: Write the Git Bash shims (.venv/bin/python and trash)
+        run: .venv/Scripts/python.exe -B Drawer/runtime/seat.py shims
+      - name: Hub smoke
+        run: .venv/bin/python -B Drawer/smoke.py
+      - name: Tracked settings (a runner has no local .mcp.json or settings.local.json)
+        run: .venv/bin/python -B Drawer/settings-sync.py --tracked
+      - name: Harness conform (offline checks except settings; a runner has no seat and no claude)
+        run: .venv/bin/python -B Drawer/harness-conform.py skills hooks pointers agents hiding blobs pins cites config

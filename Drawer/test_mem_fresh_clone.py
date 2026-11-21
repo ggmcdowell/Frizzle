@@ -20,6 +20,7 @@ from pathlib import Path
 HUB = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HUB / "Drawer"))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 
 DROP = ("OPENAI_API_KEY", harness_config.env_name("MEM_DB"), harness_config.env_name("MEM_EMBED"), "MEM_LIVE_WRITE",
         harness_config.NO_LOCAL_VAR)
@@ -76,11 +77,12 @@ class FreshCloneTest(unittest.TestCase):
         cls.home, scratch = cls.tmp / "home", cls.tmp / "scratch"
         cls.home.mkdir()
         scratch.mkdir()
-        env.update(HOME=str(cls.home), TMPDIR=str(scratch), GIT_CONFIG_NOSYSTEM="1")
+        env.update(harness_config.home_vars(cls.home), TMPDIR=str(scratch), TEMP=str(scratch), TMP=str(scratch),
+                   GIT_CONFIG_NOSYSTEM="1")
         cls.env = env
         run(["git", "clone", "-q", "--no-hardlinks", str(HUB), str(cls.clone)], cls.tmp, env)
         (cls.clone / ".venv").symlink_to(HUB / ".venv")  # the uv sync stand-in: the hub's own environment
-        cls.py = str(cls.clone / ".venv" / "bin" / "python")
+        cls.py = str(oscompat.venv_python(cls.clone))  # the interpreter a process starts (.venv/Scripts on Windows)
         cls.mem = [cls.py, "-B", "Drawer/mem/mem.py"]
 
     @classmethod
@@ -128,7 +130,10 @@ class FreshCloneTest(unittest.TestCase):
                 self.assert_mcp(server, card["id"])
 
     def assert_mcp(self, server, card_id):
-        client = Stdio([server["command"], *server["args"]], self.clone, self.env)
+        command = server["command"]
+        if command == ".venv/bin/python":  # the example's portable name: a process starts the platform's interpreter
+            command = self.py
+        client = Stdio([command, *server["args"]], self.clone, self.env)
         try:
             init = client.ask(1, "initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
                                                 "clientInfo": {"name": "fresh-clone-test", "version": "0"}})

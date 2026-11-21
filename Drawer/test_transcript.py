@@ -195,26 +195,32 @@ class CodeModeTests(unittest.TestCase):
 
 class WindowsProjectDirTests(unittest.TestCase):
     def test_the_project_folder_is_found_whatever_the_drive_letter_case(self):
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        projects = Path(folder.name)
-        (projects / "C--Users-x-Hub").mkdir()
+        # A fake case-sensitive projects folder: a real Windows folder is case-insensitive and cannot hold both spellings.
+        projects = os.path.join(os.sep, "fake", "projects")
+        present = {"C--Users-x-Hub"}
+
+        def isdir(path):
+            return path == projects or (os.path.dirname(path) == projects and os.path.basename(path) in present)
+
         args = type("Args", (), {"dir": None, "project": "C:\\Users\\x\\Hub"})()
-        with patch.object(TRANSCRIPT, "CLAUDE_PROJECTS", str(projects)), \
-                patch.object(TRANSCRIPT, "mangle", return_value="c--Users-x-Hub"):
-            self.assertEqual(str(projects / "c--Users-x-Hub"), TRANSCRIPT.resolve_dir(args))  # POSIX: exact only
+        with patch.object(TRANSCRIPT, "CLAUDE_PROJECTS", projects), \
+                patch.object(TRANSCRIPT, "mangle", return_value="c--Users-x-Hub"), \
+                patch.object(TRANSCRIPT.os.path, "isdir", side_effect=isdir), \
+                patch.object(TRANSCRIPT.os, "listdir", side_effect=lambda path: sorted(present)):
+            with patch.object(TRANSCRIPT.oscompat, "WINDOWS", False):
+                self.assertEqual(os.path.join(projects, "c--Users-x-Hub"), TRANSCRIPT.resolve_dir(args))  # POSIX: exact only
             with patch.object(TRANSCRIPT.oscompat, "WINDOWS", True):
-                self.assertEqual(str(projects / "C--Users-x-Hub"), TRANSCRIPT.resolve_dir(args))
-            (projects / "c--Users-x-Hub").mkdir()
+                self.assertEqual(os.path.join(projects, "C--Users-x-Hub"), TRANSCRIPT.resolve_dir(args))
+            present.add("c--Users-x-Hub")
             with patch.object(TRANSCRIPT.oscompat, "WINDOWS", True):
-                self.assertEqual(str(projects / "c--Users-x-Hub"), TRANSCRIPT.resolve_dir(args))
+                self.assertEqual(os.path.join(projects, "c--Users-x-Hub"), TRANSCRIPT.resolve_dir(args))
 
     def test_the_projects_folder_follows_claude_config_dir(self):
         with patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": "/cfg/claude"}):
             spec = importlib.util.spec_from_file_location("transcript_cfg", PATH)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-        self.assertEqual(os.path.join("/cfg/claude", "projects"), mod.CLAUDE_PROJECTS)
+        self.assertEqual(os.path.join(str(Path("/cfg/claude")), "projects"), mod.CLAUDE_PROJECTS)
 
 
 if __name__ == "__main__":

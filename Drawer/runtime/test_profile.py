@@ -14,6 +14,7 @@ if str(DRAWER) not in sys.path:
 from runtime import profile  # noqa: E402
 
 E = profile.env_name
+HOST_OS = "nt" if profile.oscompat.WINDOWS else "posix"
 
 
 class ProfileFixture(unittest.TestCase):
@@ -119,7 +120,7 @@ class SetupRequiredAndMachineTests(ProfileFixture):
             profile.machine(self.hub, {})
 
     def test_machine_from_a_saved_profile(self):
-        self.assertEqual(profile.Machine("posix", "claude"), profile.machine(self.hub, {}))
+        self.assertEqual(profile.Machine(HOST_OS, "claude"), profile.machine(self.hub, {}))
 
     def test_machine_names_the_host_os(self):
         with patch.object(profile.oscompat, "WINDOWS", True):
@@ -136,7 +137,7 @@ class SetupRequiredAndMachineTests(ProfileFixture):
 
     def test_a_seat_without_a_profile_names_no_provider(self):
         self.path.unlink()
-        self.assertEqual(profile.Machine("posix", None), profile.machine(self.hub, {}))
+        self.assertEqual(profile.Machine(HOST_OS, None), profile.machine(self.hub, {}))
 
 
 if __name__ == "__main__":

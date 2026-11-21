@@ -10,6 +10,15 @@ import tempfile
 import unittest
 
 HUB = Path(__file__).resolve().parents[1]
+
+
+def shell_path(path):
+    """A path in the form the POSIX shell reads inside PATH, where a drive colon would split the entry."""
+    posix = Path(path).as_posix()
+    if os.name == "nt" and re.match(r"[A-Za-z]:/", posix):
+        return "/" + posix[0].lower() + posix[2:]
+    return posix
+
 SCRIPTS = ("Drawer/git-hooks/pre-commit", "Drawer/git-hooks/pre-push", "Drawer/statusline-command.sh")
 # Sourced by the hooks, never run on its own: copied as it is.
 SOURCED = ("Drawer/git-hooks/bound-gate.sh",)
@@ -59,7 +68,7 @@ class PythonStubFallbackTests(unittest.TestCase):
         for name in ("name-check.py", "rules_check.py", "harness-conform.py", "git-branch-policy.py"):
             (self.hub / "Drawer" / name).write_text(probe, encoding="utf-8")
         self.env = {key: os.environ[key] for key in ("SYSTEMROOT", "WINDIR") if key in os.environ}
-        self.env.update(FIXTURE_PATH=self.tools.as_posix(), FIXTURE_REPO=self.hub.as_posix(),
+        self.env.update(FIXTURE_PATH=shell_path(self.tools), FIXTURE_REPO=self.hub.as_posix(),
                         REAL_PYTHON=Path(sys.executable).as_posix(), INTERPRETER_LOG=self.log.as_posix(),
                         CALLS_LOG=self.calls.as_posix())
         # The status line reads ~/.claude stamps; an empty home keeps the real ones out.

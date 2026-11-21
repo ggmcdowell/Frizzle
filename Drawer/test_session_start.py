@@ -17,6 +17,7 @@ sys.path.insert(0, str(HOOK_DIR))
 sys.path.insert(0, str(ROOT / "Drawer"))
 import git_freshness  # noqa: E402
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 from runtime import profile, seat  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("session_start", HOOK_DIR / "session-start.py")
@@ -98,8 +99,8 @@ class SessionStartTests(unittest.TestCase):
             with mock.patch.object(hook, "HUB_ROOT", hub), \
                  mock.patch.object(profile, "setup_required", return_value=False) as saved:
                 self.assertTrue(hook.setup_needed())  # no .venv/bin/python
-                (hub / ".venv" / "bin").mkdir(parents=True)
-                (hub / ".venv" / "bin" / "python").write_text("")
+                oscompat.venv_python(hub).parent.mkdir(parents=True)
+                oscompat.venv_python(hub).write_text("")
                 self.assertFalse(hook.setup_needed())
                 saved.return_value = True
                 self.assertTrue(hook.setup_needed())  # no saved profile

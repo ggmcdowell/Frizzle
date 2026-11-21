@@ -25,7 +25,7 @@ import testgit  # noqa: E402
 testgit.arm()  # no git template in any fixture repo
 BLOCKED = tomllib.loads((HUB / "harness.toml").read_text(encoding="utf-8"))["smoke"]["blocked_exit"]
 GIT = shutil.which("git")
-SYSTEM_PATH = os.pathsep.join(sorted({os.path.dirname(GIT), "/usr/bin", "/bin"}))
+SYSTEM_PATH = testgit.system_path()
 STUB = """#!/bin/sh
 echo "$*" >> "$STUB_LOG"
 case "$*" in

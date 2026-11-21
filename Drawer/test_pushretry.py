@@ -20,6 +20,21 @@ n=$(cat "$STUB_DIR/count" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$STUB_D
 if [ $n -le "$STUB_FAILS" ]; then printf '%s\\n' "$STUB_STDERR" >&2; exit 1; fi
 echo pushed
 """
+# Windows runs no shell script and CreateProcess finds only git.exe by a bare name: git.cmd runs the same stub in Python.
+STUB_PY = """import os, sys
+d = os.environ["STUB_DIR"]
+try:
+    n = int(open(os.path.join(d, "count")).read())
+except OSError:
+    n = 0
+n += 1
+open(os.path.join(d, "count"), "w").write(str(n))
+if n <= int(os.environ["STUB_FAILS"]):
+    sys.stderr.write(os.environ["STUB_STDERR"] + "\\n")
+    sys.exit(1)
+print("pushed")
+"""
+STUB_CMD = '@"%STUB_PY%" "%STUB_DIR%\\git_stub.py" %*\n'
 FIVE_XX = "error: RPC failed; HTTP 502 curl 22 The requested URL returned error: 502"
 REFUSED = " ! [rejected]        main -> main (non-fast-forward)\nerror: failed to push some refs"
 
@@ -28,8 +43,12 @@ class StubGit(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
-        (self.dir / "git").write_text(STUB)
-        (self.dir / "git").chmod(0o755)
+        if os.name == "nt":
+            (self.dir / "git_stub.py").write_text(STUB_PY)
+            (self.dir / "git.cmd").write_text(STUB_CMD)
+        else:
+            (self.dir / "git").write_text(STUB)
+            (self.dir / "git").chmod(0o755)
         self.sleeps = []
 
     def tearDown(self):
@@ -37,9 +56,17 @@ class StubGit(unittest.TestCase):
 
     def push(self, fails, stderr):
         env = {"PATH": f"{self.dir}{os.pathsep}{os.environ['PATH']}", "STUB_DIR": str(self.dir),
-               "STUB_FAILS": str(fails), "STUB_STDERR": stderr}
+               "STUB_FAILS": str(fails), "STUB_STDERR": stderr, "STUB_PY": sys.executable}
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch.dict(os.environ, env), redirect_stdout(out), redirect_stderr(err):
+        real = subprocess.run
+
+        def run(argv, **kw):  # CreateProcess does not resolve a bare "git" to git.cmd: name the stub
+            if os.name == "nt" and argv[0] == "git":
+                argv = [str(self.dir / "git.cmd"), *argv[1:]]
+            return real(argv, **kw)
+
+        with mock.patch.dict(os.environ, env), mock.patch.object(subprocess, "run", run), \
+                redirect_stdout(out), redirect_stderr(err):
             code = pushretry.main([str(self.dir), "origin", "HEAD:main"], sleep=self.sleeps.append)
         return code, int((self.dir / "count").read_text()), err.getvalue()
 

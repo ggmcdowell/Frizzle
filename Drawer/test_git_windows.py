@@ -7,6 +7,7 @@ branch is taken and what it asks for. The real calls are oscompat's own (test_os
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -51,9 +52,11 @@ class GuardNames(unittest.TestCase):
             self.assertEqual(name, git_guard.cmd_name(word), word)
 
     def test_rm_exe_is_judged_like_rm(self) -> None:
-        refused = git_guard.reason("rm -rf /usr/lib", {"cwd": "/work/user"})
+        # A folder that exists and lies outside temp and any own worktree: /usr/lib, on Windows the stdlib folder.
+        target = Path(os.__file__).parent.as_posix() if oscompat.WINDOWS else "/usr/lib"
+        refused = git_guard.reason(f"rm -rf {target}", {"cwd": "/work/user"})
         self.assertTrue(refused)
-        self.assertEqual(refused, git_guard.reason("rm.exe -rf /usr/lib", {"cwd": "/work/user"}))
+        self.assertEqual(refused, git_guard.reason(f"rm.exe -rf {target}", {"cwd": "/work/user"}))
 
     def test_a_hooks_path_override_through_git_exe_is_refused(self) -> None:
         self.assertIn("core.hooksPath", git_guard.reason("git.exe -c core.hooksPath=/x commit -m x", {"cwd": "/work/user"}))
@@ -67,12 +70,14 @@ class GuardPaths(unittest.TestCase):
             self.assertEqual("C:/T", git_guard.native("/var/tmp"))
             self.assertEqual("/tmpfile", git_guard.native("/tmpfile"))
             self.assertEqual("C:/x", git_guard.native("C:/x"))
-        for text in ("/c/work/x", "/tmp/a", "C:/x"):
-            self.assertEqual(text, git_guard.native(text))
+        with mock.patch.object(oscompat, "WINDOWS", False):
+            for text in ("/c/work/x", "/tmp/a", "C:/x"):
+                self.assertEqual(text, git_guard.native(text))
 
     def test_below_ignores_case_where_the_platform_does(self) -> None:
-        self.assertFalse(git_guard.below("/Tmp/A/b", "/tmp/a"))
-        with mock.patch("os.path.normcase", lambda text: text.lower()):
+        with mock.patch("os.sep", "/"), mock.patch("os.path.normcase", lambda text: text):
+            self.assertFalse(git_guard.below("/Tmp/A/b", "/tmp/a"))
+        with mock.patch("os.sep", "/"), mock.patch("os.path.normcase", lambda text: text.lower()):
             self.assertTrue(git_guard.below("/Tmp/A/b", "/tmp/a"))
             self.assertFalse(git_guard.below("/TMP/a", "/tmp/a"))
 
@@ -81,7 +86,8 @@ class GuardPaths(unittest.TestCase):
         with mock.patch.object(oscompat, "WINDOWS", True), mock.patch.object(tempfile, "gettempdir", return_value="C:/T"):
             why = git_guard.place_reason("C:/x", [], git_guard.Line("rm -rf C:/x", "abcd1234"))
         self.assertFalse(why and why.startswith("cannot place"), why)
-        self.assertTrue(git_guard.place_reason("C:/x", [], git_guard.Line("rm -rf C:/x", "abcd1234")).startswith("cannot place"))
+        with mock.patch.object(oscompat, "WINDOWS", False):  # elsewhere C:/x is relative
+            self.assertTrue(git_guard.place_reason("C:/x", [], git_guard.Line("rm -rf C:/x", "abcd1234")).startswith("cannot place"))
 
 
 class PolicyWindows(unittest.TestCase):
@@ -96,8 +102,9 @@ class PolicyWindows(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             target, link = Path(temp, "target"), Path(temp, "link")
             target.mkdir()
-            policy._link_venv(target, link)
-            self.assertTrue(link.is_symlink())
+            with mock.patch.object(oscompat, "WINDOWS", False), mock.patch.object(Path, "symlink_to") as symlink:
+                policy._link_venv(target, link)  # no real link: a symlink needs a privilege on Windows
+            symlink.assert_called_once_with(target, target_is_directory=True)
 
     def test_install_would_set_long_paths_on_windows_only(self) -> None:
         source = Path(policy.__file__).read_text(encoding="utf-8")

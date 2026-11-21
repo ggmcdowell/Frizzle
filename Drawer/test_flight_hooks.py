@@ -238,8 +238,9 @@ class FlightHooksTests(unittest.TestCase):
 
     def hold_lock(self):
         holder = subprocess.Popen(
-            [sys.executable, "-c", "import fcntl,sys,time; f=open(sys.argv[1],'w'); "
-             "fcntl.flock(f, fcntl.LOCK_EX); print('held', flush=True); time.sleep(60)", str(self.lock)],
+            [sys.executable, "-c", "import sys,time; sys.path.insert(0, sys.argv[2]); import oscompat; "
+             "f=open(sys.argv[1],'w'); oscompat.lock(f); print('held', flush=True); time.sleep(60)", str(self.lock),
+             str(HERE)],
             stdout=subprocess.PIPE, text=True)
         self.addCleanup(holder.wait)
         self.addCleanup(holder.kill)

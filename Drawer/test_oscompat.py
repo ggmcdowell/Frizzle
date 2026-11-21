@@ -54,9 +54,11 @@ class Lock(unittest.TestCase):
                 oscompat.unlock(two)
 
     def test_a_lock_fault_that_is_not_busy_raises_at_once_even_when_blocking(self):
-        import fcntl
+        # The POSIX branch with a faked fcntl (there is none on Windows): pinned to POSIX, it runs on every platform.
         fault = OSError(errno.ENOLCK, "no locks available")
-        with tempfile.TemporaryFile() as f, mock.patch.object(fcntl, "flock", side_effect=fault) as flock:
+        fake = mock.Mock(LOCK_EX=2, LOCK_NB=4, flock=mock.Mock(side_effect=fault))
+        flock = fake.flock
+        with tempfile.TemporaryFile() as f, mock.patch.object(oscompat, "WINDOWS", False),                 mock.patch.dict(sys.modules, {"fcntl": fake}):
             with self.assertRaises(OSError):
                 oscompat.lock(f, blocking=True)
         self.assertEqual(1, flock.call_count)
@@ -76,7 +78,8 @@ class Lock(unittest.TestCase):
 
 class Processes(unittest.TestCase):
     def test_a_group_start_and_a_tree_stop_by_platform(self):
-        self.assertEqual({"start_new_session": True}, oscompat.popen_group())
+        with mock.patch.object(oscompat, "WINDOWS", False):
+            self.assertEqual({"start_new_session": True}, oscompat.popen_group())
         with mock.patch.object(oscompat, "WINDOWS", True), \
                 mock.patch.object(oscompat.subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200, create=True), \
                 mock.patch.object(oscompat.subprocess, "CREATE_NO_WINDOW", 0x8000000, create=True):
@@ -90,6 +93,29 @@ class Processes(unittest.TestCase):
             with self.assertRaises(ProcessLookupError):
                 oscompat.kill_tree(42)
 
+    def test_a_taskkill_error_for_a_process_that_ended_on_its_own_is_a_stopped_tree(self):
+        # A venv launcher exits once its child is killed: taskkill then fails on it with "no running instance".
+        failed = subprocess.CompletedProcess([], 1, "", "ERROR: There is no running instance of the task.")
+        with mock.patch.object(oscompat, "WINDOWS", True), \
+                mock.patch.object(oscompat.subprocess, "run", return_value=failed), \
+                mock.patch.object(oscompat, "_exited", return_value=True):
+            oscompat.kill_tree(42)
+        with mock.patch.object(oscompat, "WINDOWS", True), \
+                mock.patch.object(oscompat.subprocess, "run", return_value=failed), \
+                mock.patch.object(oscompat, "_exited", return_value=False):
+            with self.assertRaises(OSError):
+                oscompat.kill_tree(42)
+
+    @unittest.skipUnless(os.name == "nt", "the exit-code probe is Windows only")
+    def test_the_exit_probe_tells_a_live_process_from_an_ended_one(self):
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        try:
+            self.assertFalse(oscompat._exited(child.pid))
+        finally:
+            child.kill()
+            child.wait(timeout=10)
+        self.assertTrue(oscompat._exited(child.pid))  # the Popen handle is open: it must still read as ended
+
     def test_a_real_posix_group_is_stopped(self):
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], **oscompat.popen_group())
         oscompat.kill_tree(child.pid)
@@ -100,7 +126,8 @@ class Processes(unittest.TestCase):
 
 class Paths(unittest.TestCase):
     def test_a_git_bash_drive_path_maps_on_windows_only(self):
-        self.assertEqual("/c/work/x", oscompat.native_path("/c/work/x"))
+        with mock.patch.object(oscompat, "WINDOWS", False):
+            self.assertEqual("/c/work/x", oscompat.native_path("/c/work/x"))
         with mock.patch.object(oscompat, "WINDOWS", True):
             self.assertEqual("C:/work/x", oscompat.native_path("/c/work/x"))
             self.assertEqual("D:/", oscompat.native_path("/d"))
@@ -119,11 +146,13 @@ class Paths(unittest.TestCase):
         self.assertEqual(oscompat.REPLACE_TRIES, rep.call_count)
 
     def test_the_recycle_bin_is_windows_only(self):
-        with self.assertRaises(OSError):
+        # Pinned to POSIX: on real Windows this would send the test's own source file to the Recycle Bin.
+        with mock.patch.object(oscompat, "WINDOWS", False), self.assertRaises(OSError):
             oscompat.recycle(__file__)
 
     def test_git_shell_never_takes_the_wsl_launcher(self):
-        self.assertEqual("sh", oscompat.git_shell("sh"))
+        with mock.patch.object(oscompat, "WINDOWS", False):
+            self.assertEqual("sh", oscompat.git_shell("sh"))
         with mock.patch.object(oscompat, "WINDOWS", True), \
                 mock.patch.object(oscompat.shutil, "which",
                                   lambda name: None if name == "git" else "C:/Windows/System32/bash.exe"), \

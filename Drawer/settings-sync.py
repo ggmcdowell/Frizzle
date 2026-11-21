@@ -346,12 +346,13 @@ def local_dirs(cfg, hub=HUB):
 
 def leg_seat_command(cfg, hub=HUB):
     """The lean SubagentStart boot: a printf of one SEAT line, so a leg starts with no Python and no door."""
+    # Forward slashes: sh -c strips the backslashes of a Windows path out of the JSON, and Windows reads both.
     product = product_main(cfg)
-    main = harness_config.main_checkout(hub)
+    main = harness_config.main_checkout(hub).as_posix()
     parts = [f"hub={main}", f"hub_trees={main}_wt"]
     if product:
-        parts += [f"product={product}", f"product_trees={product}_wt"]
-    parts.append(f"state_root={harness_config.path(cfg['project']['state_root'])}")
+        parts += [f"product={product.as_posix()}", f"product_trees={product.as_posix()}_wt"]
+    parts.append(f"state_root={harness_config.path(cfg['project']['state_root']).as_posix()}")
     answer = {"hookSpecificOutput": {"hookEventName": "SubagentStart",
                                      "additionalContext": "SEAT " + " ".join(parts)}}
     return "printf '%s\\n' " + shlex.quote(json.dumps(answer))

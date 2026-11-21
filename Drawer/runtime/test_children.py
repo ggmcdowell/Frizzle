@@ -27,10 +27,10 @@ RECORD_NAME = "smoke-children.json"
 LOCK_NAME = "smoke-children.lock"
 # The creation identity a live process carries here (children.process_identity).
 IDENTITY_KIND = "proc-start"
-# A terminated child's exit code: SIGTERM.
-TERMINATED_EXIT = -15
-# A living child holds its log open; POSIX removes the scratch anyway.
-HELD = "; scratch removed"
+# A terminated child's exit code: SIGTERM on POSIX, taskkill /F on Windows.
+TERMINATED_EXIT = 1 if os.name == "nt" else -15
+# A living child holds its log open: POSIX removes the scratch anyway, Windows cannot.
+HELD = "; scratch still in use" if os.name == "nt" else "; scratch removed"
 # No seat variable reaches a child of this suite.
 CHILD_ENV = {}
 
@@ -210,12 +210,14 @@ class PosixCompareTests(unittest.TestCase):
     """An identity the OS hides never authorizes a kill; only a proven absence is a mismatch."""
 
     def test_hidden_identity_is_uncertain_and_a_missing_process_is_a_mismatch(self):
+        # The pid probe is gatelib.pid_state on every seat: "live" is a process that runs or
+        # runs as another user (POSIX PermissionError), "gone" is no such process.
         with patch.object(children, "process_identity", return_value=None):
-            with patch.object(children.os, "kill", side_effect=PermissionError):
+            with patch.object(children.gatelib, "pid_state", return_value="live"):
                 self.assertEqual("uncertain", children._posix_compare(4242, "proc-start:1"))
-            with patch.object(children.os, "kill", side_effect=ProcessLookupError):
+            with patch.object(children.gatelib, "pid_state", return_value="gone"):
                 self.assertEqual("mismatch", children._posix_compare(4242, "proc-start:1"))
-            with patch.object(children.os, "kill", return_value=None):
+            with patch.object(children.gatelib, "pid_state", return_value="unsure"):
                 self.assertEqual("uncertain", children._posix_compare(4242, "proc-start:1"))
         with patch.object(children, "process_identity", return_value="proc-start:2"):
             self.assertEqual("mismatch", children._posix_compare(4242, "proc-start:1"))
@@ -306,8 +308,13 @@ class WindowsRouteTests(unittest.TestCase):
 
     def test_identity_is_the_creation_stamp_and_a_hidden_one_falls_back_to_pid_only(self):
         with patch.object(children.oscompat, "WINDOWS", True):
-            with patch.object(children.oscompat, "process_started", return_value=1234567):
+            with patch.object(children.oscompat, "process_started", return_value=1234567), \
+                 patch.object(children.gatelib, "pid_state", return_value="live"):
                 self.assertEqual("proc-start:1234567", children.process_identity(4242))
+            # An exited process whose handle is still open keeps its stamp but has no identity.
+            with patch.object(children.oscompat, "process_started", return_value=1234567), \
+                 patch.object(children.gatelib, "pid_state", return_value="gone"):
+                self.assertIsNone(children.process_identity(4242))
             with patch.object(children.oscompat, "process_started", return_value=None), \
                  patch.object(children.gatelib, "pid_state", return_value="live"):
                 self.assertEqual("pid-only:4242", children.process_identity(4242))

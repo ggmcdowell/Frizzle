@@ -52,10 +52,11 @@ class ProductWorktreeTests(unittest.TestCase):
         self.cfg = {"product": {"path": str(self.main / "project")}}
         self.store = mem.Mem(base / "mem.db", NoEmbed())
         self.addCleanup(self.store.db.close)
-        env = unittest.mock.patch.dict(os.environ, {"HOME": str(self.home), MEM_DB: str(base / "mem.db"),
+        env = unittest.mock.patch.dict(os.environ, {**harness_config.home_vars(self.home), MEM_DB: str(base / "mem.db"),
                                                     MEM_EMBED: "off"})
         env.start()
         self.addCleanup(env.stop)
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)  # a profile's config dir would move the sessions folder off self.home; env.stop restores it
 
     def git(self, repo, *args):
         r = subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
@@ -87,7 +88,7 @@ class ProductWorktreeTests(unittest.TestCase):
     def lock_of(self, root):
         for block in self.git(self.main, "worktree", "list", "--porcelain").split("\n\n"):
             rows = dict(line.partition(" ")[::2] for line in block.splitlines())
-            if rows.get("worktree") == str(root):
+            if Path(rows.get("worktree", "")) == Path(root):  # git prints forward slashes on Windows
                 return rows.get("locked")
         return None
 

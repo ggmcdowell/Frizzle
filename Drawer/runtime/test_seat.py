@@ -18,6 +18,7 @@ DRAWER = Path(__file__).resolve().parents[1]
 if str(DRAWER) not in sys.path:
     sys.path.insert(0, str(DRAWER))
 import harness_config  # noqa: E402
+import oscompat  # noqa: E402
 from runtime import filelock, profile, seat  # noqa: E402
 
 
@@ -29,6 +30,21 @@ def record(name, status, reason="", detail=None):
     return {"name": name, "status": status, "reason": reason, "detail": detail}
 
 
+def fake_venv_python(hub):
+    """Put an interpreter a process can start where seat.interpreter names it. Windows: a copy of this
+    interpreter (and its pyvenv.cfg) at .venv/Scripts/python.exe. Elsewhere: a .venv/bin/python sh wrapper."""
+    target = oscompat.venv_python(hub)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if oscompat.WINDOWS:
+        shutil.copy2(sys.executable, target)
+        config = Path(sys.prefix) / "pyvenv.cfg"
+        if config.is_file():
+            shutil.copy2(config, target.parent.parent / "pyvenv.cfg")
+    else:
+        target.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+        target.chmod(0o755)
+
+
 class SeatFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="runtime seat ")
@@ -38,7 +54,7 @@ class SeatFixture(unittest.TestCase):
         (self.hub / "Drawer").mkdir(parents=True)
         (self.hub / "uv.lock").write_bytes(b"version = 1\n")
         self.state = self.home / "state"
-        (self.hub / "harness.toml").write_text(f'[project]\nstate_root = "{self.state}"\n', encoding="utf-8")
+        (self.hub / "harness.toml").write_text(f'[project]\nstate_root = "{self.state.as_posix()}"\n', encoding="utf-8")
         self.profile = dict(schema_version=1, hub_root=str(self.hub), member_name="member",
                             agent="claude", box_name="test-box")
         self.home_patch = patch.object(Path, "home", return_value=self.home)
@@ -107,6 +123,40 @@ class LockTests(SeatFixture):
                                      err)
 
 
+class ShimTests(SeatFixture):
+    """seat shims: Windows writes the .venv/bin/python shim and the trash shim; elsewhere it writes nothing."""
+
+    def run_shims(self, *, windows):
+        out, err = io.StringIO(), io.StringIO()
+        # Called directly: the patched flag would also switch the seat lock's platform code.
+        with patch.object(oscompat, "WINDOWS", windows), patch.object(seat.shutil, "which", return_value=None),                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = seat.shims(self.hub)
+        return status, out.getvalue(), err.getvalue()
+
+    def test_shims_do_nothing_off_windows(self):
+        status, out, err = self.run_shims(windows=False)
+        self.assertEqual((0, "shims: not Windows; nothing to write\n", ""), (status, out, err))
+        self.assertFalse((self.home / ".local" / "bin" / "trash").exists())
+
+    def test_shims_need_the_interpreter_on_windows(self):
+        status, out, err = self.run_shims(windows=True)
+        self.assertEqual((1, ""), (status, out))
+        self.assertIn("run uv sync first", err)
+
+    def test_shims_write_the_venv_python_and_trash_shims_on_windows_once(self):
+        python = self.hub / ".venv" / "Scripts" / "python.exe"
+        python.parent.mkdir(parents=True)
+        python.write_bytes(b"")
+        trash = self.home / ".local" / "bin" / "trash"
+        status, out, err = self.run_shims(windows=True)
+        self.assertEqual((0, ""), (status, err))
+        self.assertEqual(f"shims: wrote .venv/bin/python; wrote {trash}\n", out)
+        self.assertEqual(oscompat.VENV_SHIM, (self.hub / ".venv" / "bin" / "python").read_text(encoding="utf-8"))
+        self.assertIn(python.as_posix(), trash.read_text(encoding="utf-8"))
+        status, out, err = self.run_shims(windows=True)  # a second run finds both in place
+        self.assertEqual((0, "shims: .venv/bin/python in place\n", ""), (status, out, err))
+
+
 class ConfigureTests(SeatFixture):
     def setUp(self):
         super().setUp()
@@ -114,6 +164,10 @@ class ConfigureTests(SeatFixture):
         self.stamp = self.stamp_current_pins()
         self.sync_command = [str(seat.interpreter(self.hub)), "-B",
                              str(self.hub / "Drawer" / "settings-sync.py"), "--apply"]
+        if oscompat.WINDOWS:  # configure first writes the Windows shims (ShimTests); here they print nothing
+            shims = patch.object(seat, "shims", return_value=0)
+            shims.start()
+            self.addCleanup(shims.stop)
 
     def configured(self, **environment):
         calls = []
@@ -168,17 +222,20 @@ class ConfigureTests(SeatFixture):
         self.assertEqual((0, ""), (status, err))
         value = json.loads(config.read_text(encoding="utf-8"))
         want = {str(self.hub), f"{self.hub}_wt"}
+        if oscompat.WINDOWS:  # trust_dirs also spells each folder with forward slashes
+            want |= {Path(spelling).as_posix() for spelling in want}
         self.assertEqual(want, set(seat.trust_dirs(self.hub)))
         self.assertEqual(want, {k for k, v in value["projects"].items() if v.get("hasTrustDialogAccepted") is True})
         self.assertEqual("u", value["userID"])
         self.assertEqual({"allowedTools": ["x"]}, value["projects"]["/tmp"])
-        self.assertEqual(0o600, config.stat().st_mode & 0o777)
+        if not oscompat.WINDOWS:  # Windows has no owner-only mode bits
+            self.assertEqual(0o600, config.stat().st_mode & 0o777)
 
     def test_trust_honors_the_client_config_dir_and_covers_the_product_worktrees(self):
         product = self.home / "product"
         subprocess.run(["git", "init", "-q", str(product)], check=True)
         with (self.hub / "harness.toml").open("a", encoding="utf-8") as handle:
-            handle.write(f'[product]\npath = "{product}"\n')
+            handle.write(f'[product]\npath = "{Path(product).as_posix()}"\n')
         self.assertIn(f"{product}_wt", seat.trust_dirs(self.hub))
         folder = self.home / "client"
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(folder)}):
@@ -609,12 +666,9 @@ class OriginTests(SeatFixture):
             (self.hub / marker).write_text("", encoding="utf-8")
             # bind = true: a refusing gate blocks the push, as on a bound hub.
             (self.hub / "harness.toml").write_text(
-                f'[project]\nstate_root = "{self.state}"\nmarker_file = "{marker}"\n\n[gates]\nbind = true\n',
+                f'[project]\nstate_root = "{self.state.as_posix()}"\nmarker_file = "{marker}"\n\n[gates]\nbind = true\n',
                 encoding="utf-8")
-            venv = self.hub / ".venv" / "bin"
-            venv.mkdir(parents=True)
-            (venv / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
-            (venv / "python").chmod(0o755)
+            fake_venv_python(self.hub)
             (self.hub / ".gitignore").write_text(".venv/\n", encoding="utf-8")
             git("add", ".")
             git("commit", "-q", "--no-verify", "-m", "hub")
@@ -648,11 +702,8 @@ class OriginTests(SeatFixture):
             marker = harness_config.load(DRAWER.parent)["project"]["marker_file"]
             (self.hub / marker).write_text("", encoding="utf-8")
             (self.hub / "harness.toml").write_text(
-                f'[project]\nstate_root = "{self.state}"\nmarker_file = "{marker}"\n', encoding="utf-8")
-            venv = self.hub / ".venv" / "bin"
-            venv.mkdir(parents=True)
-            (venv / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
-            (venv / "python").chmod(0o755)
+                f'[project]\nstate_root = "{self.state.as_posix()}"\nmarker_file = "{marker}"\n', encoding="utf-8")
+            fake_venv_python(self.hub)
             (self.hub / ".gitignore").write_text(".venv/\n", encoding="utf-8")
             git("add", ".")
             git("commit", "-q", "--no-verify", "-m", "hub")
@@ -768,7 +819,7 @@ class CheckTests(SeatFixture):
         with check_all, summary, close_all:
             status, _out, _err = self.run_seat(["check", "--only", "smoke"])
         self.assertEqual(0, status)
-        self.assertEqual([(self.hub, ("posix", "claude"), ["smoke"])], seen)
+        self.assertEqual([(self.hub, ("nt" if oscompat.WINDOWS else "posix", "claude"), ["smoke"])], seen)
 
     def test_only_a_family_name_passes_every_row_of_the_family_through(self):
         """--only probe must check every probe:<part> row, not one of them and not none."""

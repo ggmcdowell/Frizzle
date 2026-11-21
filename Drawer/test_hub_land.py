@@ -114,7 +114,11 @@ class HubLandTests(unittest.TestCase):
 
     def hub_land(self, *args: str, cwd: Path | None = None, **env: str) -> tuple[int, dict]:
         """hub-land.py of the task worktree, run as a child, as a session runs it."""
-        child = {**self.child_env(), "CLAUDE_CODE_SESSION_ID": gbp.OWN_SESSION, "HOME": str(self.home),
+        # Windows names its temp folder in TEMP and TMP, which child_env does not pass: without them the child's
+        # temp folder is the C:/temp fallback, not the one the test reads. Without SYSTEMROOT the Recycle Bin call
+        # of the run folder's trash fails (code 126). POSIX passes TMPDIR already.
+        temp = {name: os.environ[name] for name in ("TEMP", "TMP", "SYSTEMROOT") if name in os.environ}
+        child = {**self.child_env(), **temp, "CLAUDE_CODE_SESSION_ID": gbp.OWN_SESSION, "HOME": str(self.home),
                  "SMOKE_LOG": str(self.smoke_log), **env}
         script = (self.tree if self.tree.exists() else self.repo) / "Drawer/hub-land.py"
         run = subprocess.run([sys.executable, "-B", str(script), "--name", NAME, *args],
@@ -157,9 +161,11 @@ class HubLandTests(unittest.TestCase):
         parent = run_tmp.base({"project": {"state_root": str(Path(self.temporary.name) / "state")}})
         self.assertEqual(parent.resolve(), folder.parent.resolve())
         self.assertFalse(parent.exists())  # the last run leaves no empty parent behind
-        self.assertNotIn(str(Path(tempfile.gettempdir()).resolve()), str(folder.resolve()))  # out of the box TMPDIR
+        if sys.platform == "darwin":  # only macOS has a cache folder apart from the temp folder (run_tmp.temp_root)
+            self.assertNotIn(str(Path(tempfile.gettempdir()).resolve()), str(folder.resolve()))  # out of the box TMPDIR
         self.assertFalse(folder.exists())
-        self.assertTrue((self.trash_bin / folder.name / "scratch.txt").is_file())
+        if os.name != "nt":  # Windows trashes to the Recycle Bin, never the fixture's trash command
+            self.assertTrue((self.trash_bin / folder.name / "scratch.txt").is_file())
 
     def test_the_land_smoke_is_land_command(self) -> None:
         # Hub-land smokes with [smoke] land_command, the impact smoke.

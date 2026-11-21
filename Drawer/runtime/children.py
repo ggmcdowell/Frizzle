@@ -100,7 +100,11 @@ def process_identity(pid: int) -> str | None:
         return None
     if oscompat.WINDOWS:
         started = oscompat.process_started(pid)
-        return "proc-start:%d" % started if started is not None else _pid_only(pid)
+        if started is None:
+            return _pid_only(pid)
+        # A process that exited keeps its creation time while any handle to it stays open (a
+        # Popen's own, say): it has no identity any more, as a reaped POSIX process has none.
+        return "proc-start:%d" % started if gatelib.pid_state(pid) != "gone" else None
     if sys.platform == "darwin":
         return _darwin_started(pid) or _pid_only(pid)
     try:

@@ -124,6 +124,30 @@ def popen_group() -> dict:
     return {"start_new_session": True}
 
 
+def _exited(pid: int) -> bool:
+    """Windows: True when pid has ended or cannot be opened. A handle held elsewhere keeps an ended process
+    openable, so its exit code decides."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        k.OpenProcess.restype = wintypes.HANDLE
+        k.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        k.GetExitCodeProcess.restype = wintypes.BOOL
+        k.CloseHandle.argtypes = (wintypes.HANDLE,)
+        handle = k.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return True
+        try:
+            code = wintypes.DWORD()
+            return bool(k.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value != 259  # STILL_ACTIVE
+        finally:
+            k.CloseHandle(handle)
+    except (OSError, AttributeError, ValueError):
+        return False
+
+
 def kill_tree(pid: int) -> None:
     """Stop pid and every process below it at once. POSIX: SIGKILL to the group pid heads (popen_group).
     Windows: taskkill /T /F. A process already gone raises ProcessLookupError on both."""
@@ -132,6 +156,10 @@ def kill_tree(pid: int) -> None:
                               text=True, encoding="utf-8", errors="replace", check=False)
         if done.returncode == 128:  # no such process
             raise ProcessLookupError(pid)
+        # A venv launcher exits by itself once taskkill has stopped its child: it is gone before taskkill reaches
+        # it, which taskkill reports as an error ("no running instance"). The tree is stopped: not a fault.
+        if done.returncode != 0 and _exited(pid):
+            return
         if done.returncode != 0:
             raise OSError("taskkill %d: %s" % (pid, (done.stderr or done.stdout).strip()))
         return
@@ -235,6 +263,22 @@ def git_shell(name: str = "sh") -> str:
     if found and "system32" not in found.lower():
         return found
     raise OSError(f"no Git for Windows {name}.exe: install Git for Windows (winget install Git.Git)")
+
+
+def account_home() -> Path:
+    """The account's home folder whatever HOME or USERPROFILE say (POSIX: the passwd entry; Windows: the profile
+    folder the shell reports). Raises OSError when the system names none."""
+    if WINDOWS:
+        import ctypes
+        buffer = ctypes.create_unicode_buffer(260)
+        if ctypes.windll.shell32.SHGetFolderPathW(None, 0x28, None, 0, buffer) == 0:  # CSIDL_PROFILE
+            return Path(buffer.value)
+        raise OSError("the system names no profile folder")
+    import pwd
+    try:
+        return Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except KeyError as exc:
+        raise OSError("the system names no home for this account") from exc
 
 
 def utf8_stdio() -> None:

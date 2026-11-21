@@ -42,7 +42,7 @@ def var(suffix: str) -> str:
 # The seat variables a child git and its hooks need, and nothing else: a session's own
 # GIT_* or hub session state must never reach this fixture.
 INHERITED_ENV = (
-    "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", *testgit.ENV,
+    "PATH", "HOME", "USERPROFILE", "LANG", "LC_ALL", "TMPDIR", *testgit.ENV,
 )
 # The fixture's own stand-in knobs, armed on os.environ so the hooks a policy call
 # starts in this process read them too.
@@ -153,13 +153,16 @@ def _copy_template(key: str, base: Path) -> bool:
         return False
     template, built_in = _TEMPLATES[key]
     for stale in ("hub", "remote.git"):
-        shutil.rmtree(base / stale, ignore_errors=True)
-    shutil.copytree(template.name, base, symlinks=True, dirs_exist_ok=True)
+        testgit.rmtree(base / stale)
+    testgit.copytree(template.name, base)
     config = base / "hub" / ".git" / "config"
     text = config.read_text(encoding="utf-8")
     # install writes resolved paths (/private/var/... on macOS), git remote add the plain ones.
+    # Git for Windows writes the same paths with forward slashes, or with each backslash doubled.
     for old, new in ((os.path.realpath(built_in), os.path.realpath(base)), (built_in, str(base))):
-        text = text.replace(old, new)
+        for spelled in ((old, new), (Path(old).as_posix(), Path(new).as_posix()),
+                        (old.replace("\\", "\\\\"), new.replace("\\", "\\\\"))):
+            text = text.replace(*spelled)
     config.write_text(text, encoding="utf-8")
     return True
 
@@ -193,6 +196,7 @@ class GitBranchPolicyTests(unittest.TestCase):
         self.env: dict[str, str] = {}  # session variables a case arms for the policy and its hooks
 
     def tearDown(self) -> None:
+        self.doCleanups()  # a case's open mem.db handle closes here: Windows cannot remove a file that is open
         self.temporary.cleanup()
 
     def child_env(self) -> dict[str, str]:

@@ -1,5 +1,6 @@
 """Hermetic tests for Drawer/flight-watchdog.py events: what it reads, and when it wakes Flight."""
 from datetime import datetime, timedelta, timezone
+from contextlib import nullcontext
 import importlib.util
 import io
 import json
@@ -7,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -462,8 +464,9 @@ class EventsTest(unittest.TestCase):
         self.clock = NOW + timedelta(seconds=900)  # a fresh run (the re-arm): every line above is old
         self.assertEqual([], self.run_events())
 
-    HOLD = ("import fcntl, os, sys, time; f = open(sys.argv[1], 'w'); fcntl.flock(f, fcntl.LOCK_EX); "
-            "open(sys.argv[2], 'w').write(str(os.getpid())); time.sleep(120)")
+    HOLD = ("import os, sys, time; sys.path.insert(0, %r); import oscompat; f = open(sys.argv[1], 'w'); "
+            "oscompat.lock(f); open(sys.argv[2], 'w').write(str(os.getpid())); time.sleep(120)"
+            % str(Path(__file__).resolve().parent))
 
     def holder_argv(self, words):
         """A fake watcher: it takes events-test.lock, writes its pid and sleeps; words follow it on its command line."""
@@ -478,21 +481,56 @@ class EventsTest(unittest.TestCase):
             time.sleep(0.05)
         self.fail("the holder never took the lock")
 
+    LAUNCH = ("import subprocess, sys; subprocess.Popen(sys.argv[1:], stdin=subprocess.DEVNULL, "
+              "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, "
+              "creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)")
+
     def orphan(self, words, cwd=None):
-        """Start the fake watcher from cwd with its launching shell gone (a Monitor that died): its parent is pid 1."""
+        """Start the fake watcher from cwd with its launching shell gone (a Monitor that died): its parent is gone
+        (POSIX: pid 1). POSIX backgrounds it from sh; Windows starts it from a python that exits at once."""
         (self.root / "STATE" / "events-test.pid").unlink(missing_ok=True)
         argv = self.holder_argv(words)
-        subprocess.run(["/bin/sh", "-c", " ".join(shlex.quote(a) for a in argv) + " >/dev/null 2>&1 &"], cwd=cwd,
-                       check=True)
+        if dog.oscompat.WINDOWS:
+            # The venv python.exe is a launcher that stays as the real interpreter's parent: start the base one.
+            subprocess.run([sys.executable, "-c", self.LAUNCH, sys._base_executable, *argv[1:]], cwd=cwd, check=True)
+        else:
+            subprocess.run(["/bin/sh", "-c", " ".join(shlex.quote(a) for a in argv) + " >/dev/null 2>&1 &"], cwd=cwd,
+                           check=True)
         orphan = self.wait_pid()
-        self.addCleanup(lambda: subprocess.run(["kill", "-9", str(orphan)], capture_output=True))
+        self.addCleanup(self.stop, orphan)
         return orphan
 
+    @staticmethod
+    def stop(pid):
+        """End pid (its tree on Windows); a process already gone is fine."""
+        try:
+            if dog.oscompat.WINDOWS:
+                dog.oscompat.kill_tree(pid)
+            else:
+                os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+    @staticmethod
+    def running(pid):
+        return dog.gatelib.pid_state(pid) == "live"
+
+    def real_hub_cwd(self):
+        """Windows reads no cwd: orphan_facts answers str(HUB), which setUp points at a scratch root. Answer the real
+        hub, where the orphans of these tests run, so a relative Drawer/flight-watchdog.py names this file."""
+        facts = dog.orphan_facts
+
+        def at_real_hub(pid):
+            found = facts(pid)
+            return found and (found[0], str(Path(dog.__file__).resolve().parents[1]))
+        return mock.patch.object(dog, "orphan_facts", at_real_hub) if dog.oscompat.WINDOWS else nullcontext()
+
     def assert_reaped(self, orphan):
-        lines = self.run_events()
+        with self.real_hub_cwd():
+            lines = self.run_events()
         self.assertEqual(f"EVENTS reaped: orphan process {orphan} held test", lines[0])
         self.assertEqual(str(os.getpid()), (self.root / "STATE" / "events-test.pid").read_text())
-        self.assertNotEqual(0, subprocess.run(["kill", "-0", str(orphan)], capture_output=True).returncode)
+        self.assertFalse(self.running(orphan))
 
     def test_an_orphan_watcher_is_reaped_and_a_live_one_is_busy(self):
         pid = self.root / "STATE" / "events-test.pid"
@@ -514,6 +552,8 @@ class EventsTest(unittest.TestCase):
         hub = Path(dog.__file__).resolve().parents[1]
         self.assertEqual(["Drawer/flight-watchdog.py", "events"], WATCH_WORDS)  # the relative arm form
         self.assert_reaped(self.orphan([*WATCH_WORDS, "--lock", "test"], cwd=hub))
+        if dog.oscompat.WINDOWS:
+            return  # Windows cannot read another process's cwd (orphan_facts assumes the hub root): no stray check
         # The same relative command from another folder that holds its own Drawer/flight-watchdog.py: not this hub's.
         other = self.root / "other"
         (other / "Drawer").mkdir(parents=True)
@@ -524,7 +564,7 @@ class EventsTest(unittest.TestCase):
             warnings.simplefilter("ignore", ResourceWarning)
             self.assertEqual(1, dog.events(["--once", "--lock", "test"]))
         self.assertEqual("EVENTS busy: another events run holds test\n", out.getvalue())
-        self.assertEqual(0, subprocess.run(["kill", "-0", str(stray)], capture_output=True).returncode)
+        self.assertTrue(self.running(stray))
 
     def test_an_orphan_with_the_lock_equals_form_is_reaped(self):
         hub = Path(dog.__file__).resolve().parents[1]

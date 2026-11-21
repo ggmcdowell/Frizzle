@@ -103,7 +103,7 @@ class ProductPushTests(unittest.TestCase):
         gate = base / "gate.py"
         gate.write_text(GATE, encoding="utf-8")
         self.cfg = {"project": {"state_root": str(base / "state")},
-                    "product": {"gate_command": f"{{python}} {gate} {self.gate_log}"}}
+                    "product": {"gate_command": f"{{python}} {gate.as_posix()} {self.gate_log.as_posix()}"}}
 
     def tearDown(self):
         self.tmp.cleanup()

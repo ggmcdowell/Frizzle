@@ -1575,6 +1575,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"mem: {exc}", file=sys.stderr)
         return 3 if isinstance(exc, Claimed) else 2
+    finally:
+        m.db.close()  # an in-process caller (a test) must not leave the file open: Windows cannot delete it
     return 0
 
 
