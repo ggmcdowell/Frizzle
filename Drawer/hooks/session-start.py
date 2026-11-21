@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import time
@@ -42,6 +43,10 @@ SCRATCHPAD_SEED = (
 SETUP_NOTICE = (
     "HUB SETUP REQUIRED: this checkout has no hub environment (.venv) or no saved seat profile on this machine. "
     "Read .claude/skills/setup/SKILL.md and follow it from step 1. Do nothing else.")
+# Claude Code ignores the project env key for Code Mode; only the launcher (or a user setting) turns it on.
+# flight-hooks.py LAUNCHER_VAR marks a launcher start.
+LAUNCHER_VAR = "HARNESS_FLIGHT_LAUNCHER"
+CODE_MODE_HINT = "CODE MODE: plain claude start, so Code Mode is off. For it: quit, start Flight.cmd (Windows) or ./Flight.command."
 FLIGHT_STATE = "\n## State\nBACKLOG: none.\n"  # the pad a fresh Flight needs: a State section with its backlog line
 
 DIGEST_SECONDS = 45
@@ -232,7 +237,8 @@ def main() -> None:
         memory, swept, ruled = pool.submit(digest), pool.submit(sweep), pool.submit(rules)
         backup = pool.submit(nightly)
         steps = seat_steps() if fresh else ""  # a blocked checkout may hold a half-moved uv.lock
-        parts = [fresh_text, swept.result(), ruled.result(), steps, backup.result()]
+        hint = CODE_MODE_HINT if source == "startup" and os.environ.get(LAUNCHER_VAR, "").strip() != "1" else ""
+        parts = [fresh_text, swept.result(), ruled.result(), steps, backup.result(), hint]
         digest_text = memory.result()
     seed_scratchpads()
     print(render(fit(digest_text, [p for p in parts if p])))

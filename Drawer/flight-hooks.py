@@ -138,8 +138,8 @@ def seat(now):
     (seats / session).write_text(json.dumps({"at": now.isoformat(timespec="seconds"), "session": session}) + "\n",
                                  encoding="utf-8")
     line = f"SEATED {session[:8]}"
-    # The project settings set CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 whatever the start, so that variable cannot show
-    # Code Mode; the launcher marker can.
+    # The project settings env puts CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 in every tool process, but Claude Code ignores
+    # that key for the session itself, so the variable cannot show Code Mode; the launcher marker can.
     return 0, line if os.environ.get(LAUNCHER_VAR, "").strip() == "1" else f"{line}\n{CODE_MODE_OFF}"
 
 

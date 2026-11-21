@@ -73,6 +73,17 @@ class SessionStartTests(unittest.TestCase):
         self.assertIn("mem.py", calls)
         self.assertIn("product_worktree.py", calls)
 
+    # Defect: a plain claude start in the hub ran without Code Mode and said nothing. Injection: drop the hint part.
+    def test_a_plain_start_names_how_to_get_code_mode_and_a_launcher_start_does_not(self):
+        with mock.patch.dict(os.environ, {hook.LAUNCHER_VAR: ""}):
+            context, _, _ = run_hook({"source": "startup"})
+            self.assertIn(hook.CODE_MODE_HINT, context)
+            context, _, _ = run_hook({"source": "resume"})
+            self.assertNotIn("CODE MODE:", context)
+        with mock.patch.dict(os.environ, {hook.LAUNCHER_VAR: "1"}):
+            context, _, _ = run_hook({"source": "startup"})
+            self.assertNotIn("CODE MODE:", context)
+
     def test_startup_carries_the_rules_check_and_a_shadow_fails_it_loudly(self):
         # The run's HOME is a temp folder; a checkout under the real home sees its ~/.claude/CLAUDE.md as user scope.
         with mock.patch("rules_check.user_file", return_value=harness_config.real_home() / ".claude" / "CLAUDE.md"):
